@@ -193,7 +193,7 @@ class LocalCompileServer:
                 path = str(file["path"])
                 source_target = safe_join(source_dir, path)
                 work_target = safe_join(work_dir, path)
-                written_paths.add(source_target.relative_to(source_dir).as_posix())
+                written_paths.add(PurePosixPath(path).as_posix())
                 if file["encoding"] == "base64":
                     content = base64.b64decode(file["content"])
                 elif file["encoding"] == "utf8":

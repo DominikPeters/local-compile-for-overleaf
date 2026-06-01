@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,35 @@ def test_write_snapshot_patches_existing_source_tree(tmp_path: Path) -> None:
     assert unchanged.stat().st_mtime_ns == original_mtime
     assert not stale.exists()
     assert (source_dir / "nested/changed.tex").read_text(encoding="utf-8") == "new"
+
+
+def test_write_snapshot_tracks_relative_paths_when_cache_root_is_symlinked(
+    tmp_path: Path,
+) -> None:
+    real_cache = tmp_path / "real-cache"
+    symlinked_cache = tmp_path / "symlinked-cache"
+    real_cache.mkdir()
+    symlinked_cache.symlink_to(real_cache, target_is_directory=True)
+    server = LocalCompileServer.__new__(LocalCompileServer)
+    server.cache_root = symlinked_cache
+
+    server.write_snapshot(
+        "project",
+        {
+            "full": True,
+            "files": [
+                {"path": "main.tex", "encoding": "utf8", "content": "source"},
+            ],
+            "deletedFiles": [],
+        },
+    )
+
+    manifest = json.loads(
+        (server.project_dir("project") / "source-manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest == ["main.tex"]
 
 
 def test_decode_process_output_tolerates_non_utf8_bytes() -> None:

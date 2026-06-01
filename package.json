@@ -8,7 +8,12 @@
   "scripts": {
     "build": "npm run -w extension build",
     "test": "npm run -w extension test && python -m pytest native-host/tests",
+    "test:all": "npm test && npm run test:integration",
     "test:extension": "npm run -w extension test",
+    "test:integration": "npm run build && playwright test",
     "test:native": "python -m pytest native-host/tests"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
   }
 }
