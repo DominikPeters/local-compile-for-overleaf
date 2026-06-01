@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "overleaf-local-compile"
+version = "0.1.0"
+description = "Native Messaging host for compiling Overleaf projects locally."
+requires-python = ">=3.11"
+authors = [{ name = "Overleaf Local Compile" }]
+dependencies = []
+
+[project.scripts]
+overleaf-local-compile = "overleaf_local_compile.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

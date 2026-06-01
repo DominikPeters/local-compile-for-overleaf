@@ -1,0 +1,27 @@
+{
+  "name": "@overleaf-local-compile/extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "check-types": "^5.1.0",
+    "lodash": "^4.18.1",
+    "p-map": "^4.0.0",
+    "path-browserify": "^1.0.1",
+    "p-limit": "^6.2.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.2",
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^22.10.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8"
+  }
+}

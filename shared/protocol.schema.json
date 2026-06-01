@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://overleaf-local-compile.local/protocol.schema.json",
+  "title": "Overleaf Local Compile Protocol",
+  "type": "object",
+  "definitions": {
+    "ProjectFile": {
+      "type": "object",
+      "required": ["path", "encoding", "content"],
+      "properties": {
+        "path": { "type": "string" },
+        "encoding": { "enum": ["utf8", "base64"] },
+        "content": { "type": "string" }
+      }
+    },
+    "ProjectSnapshot": {
+      "type": "object",
+      "required": ["projectId", "version", "files"],
+      "properties": {
+        "projectId": { "type": "string" },
+        "version": { "type": "number" },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ProjectFile" }
+        }
+      }
+    },
+    "CompileOptions": {
+      "type": "object",
+      "required": ["rootResourcePath"],
+      "properties": {
+        "rootResourcePath": { "type": "string" },
+        "draft": { "type": "boolean" },
+        "stopOnFirstError": { "type": "boolean" }
+      }
+    }
+  }
+}

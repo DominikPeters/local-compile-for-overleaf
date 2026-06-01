@@ -1,0 +1,14 @@
+{
+  "name": "overleaf-local-compile",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "extension"
+  ],
+  "scripts": {
+    "build": "npm run -w extension build",
+    "test": "npm run -w extension test && python -m pytest native-host/tests",
+    "test:extension": "npm run -w extension test",
+    "test:native": "python -m pytest native-host/tests"
+  }
+}
