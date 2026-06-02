@@ -81,11 +81,16 @@ export type RuntimeSyncRequest = {
   request: SyncRequestPayload
 }
 
+export type RuntimeHostStatusRequest = {
+  type: 'host-status'
+}
+
 export type RuntimeRequest =
   | RuntimeCompileRequest
   | RuntimeClearCacheRequest
   | RuntimeStopCompileRequest
   | RuntimeSyncRequest
+  | RuntimeHostStatusRequest
 
 export type NativeHelloResponse = {
   ok: true

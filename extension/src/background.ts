@@ -2,6 +2,7 @@ import type {
   NativeHelloResponse,
   RuntimeCompileRequest,
   RuntimeClearCacheRequest,
+  RuntimeHostStatusRequest,
   RuntimeRequest,
   RuntimeStopCompileRequest,
   RuntimeSyncRequest,
@@ -48,7 +49,26 @@ async function handleRuntimeMessage(message: RuntimeRequest): Promise<unknown> {
   if (message.type === 'clear-cache') return await handleClearCache(message)
   if (message.type === 'stop-compile') return await handleStopCompile(message)
   if (message.type === 'sync') return await handleSync(message)
+  if (message.type === 'host-status') return await handleHostStatus(message)
   throw new Error('Unknown runtime message')
+}
+
+async function handleHostStatus(_message: RuntimeHostStatusRequest): Promise<unknown> {
+  try {
+    const session = await ensureHost()
+    return {
+      connected: true,
+      version: session.version,
+      capabilities: session.capabilities,
+      lcfoDebug: nativeDebugState(),
+    }
+  } catch (error) {
+    return {
+      connected: false,
+      error: errorMessage(error),
+      lcfoDebug: nativeDebugState(),
+    }
+  }
 }
 
 async function handleCompile(message: RuntimeCompileRequest): Promise<unknown> {
@@ -247,6 +267,11 @@ function parseCompileBody(bodyText: string | null): Record<string, unknown> {
 }
 
 function summarizeRuntimeRequest(message: RuntimeRequest) {
+  if (message.type === 'host-status') {
+    return {
+      type: message.type,
+    }
+  }
   if (message.type === 'compile') {
     return {
       type: message.type,
