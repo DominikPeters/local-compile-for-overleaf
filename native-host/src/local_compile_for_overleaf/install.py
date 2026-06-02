@@ -221,6 +221,12 @@ def write_firefox_manifest(
         "type": "stdio",
         "allowed_extensions": extension_ids,
     }
+    if sys.platform == "win32":
+        path = windows_manifest_dir(target) / f"{HOST_NAME}.json"
+        write_json(path, manifest)
+        if target.windows_registry_key:
+            write_windows_registry_key(target.windows_registry_key, path)
+        return path
     if target.manifest_dir is None:
         raise ValueError(f"{target.display_name} has no manifest directory")
     path = target.manifest_dir / f"{HOST_NAME}.json"
@@ -250,7 +256,7 @@ def browser_targets() -> list[BrowserTarget]:
             chromium_target(
                 "chrome-for-testing",
                 "Chrome for Testing",
-                app / "Google/Chrome for Testing",
+                app / "Google/ChromeForTesting",
                 chrome_extension_ids(),
             ),
             chromium_target("edge", "Microsoft Edge", app / "Microsoft Edge", edge_extension_ids()),
@@ -274,6 +280,13 @@ def browser_targets() -> list[BrowserTarget]:
                 r"Software\Google\Chrome\NativeMessagingHosts" + "\\" + HOST_NAME,
             ),
             chromium_target(
+                "chromium",
+                "Chromium",
+                local / "Chromium/User Data",
+                chrome_extension_ids(),
+                r"Software\Chromium\NativeMessagingHosts" + "\\" + HOST_NAME,
+            ),
+            chromium_target(
                 "edge",
                 "Microsoft Edge",
                 local / "Microsoft/Edge/User Data",
@@ -287,11 +300,20 @@ def browser_targets() -> list[BrowserTarget]:
                 chrome_extension_ids(),
                 r"Software\BraveSoftware\Brave-Browser\NativeMessagingHosts" + "\\" + HOST_NAME,
             ),
-            firefox_target(roaming / "Mozilla/NativeMessagingHosts"),
+            firefox_target(
+                roaming / "Mozilla/NativeMessagingHosts",
+                r"Software\Mozilla\NativeMessagingHosts" + "\\" + HOST_NAME,
+            ),
         ]
     config = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config")))
     return [
         chromium_target("chrome", "Google Chrome", config / "google-chrome", chrome_extension_ids()),
+        chromium_target(
+            "chrome-for-testing",
+            "Chrome for Testing",
+            config / "google-chrome-for-testing",
+            chrome_extension_ids(),
+        ),
         chromium_target("chromium", "Chromium", config / "chromium", chrome_extension_ids()),
         chromium_target("edge", "Microsoft Edge", config / "microsoft-edge", edge_extension_ids()),
         chromium_target("brave", "Brave", config / "BraveSoftware/Brave-Browser", chrome_extension_ids()),
@@ -317,13 +339,17 @@ def chromium_target(
     )
 
 
-def firefox_target(manifest_dir: Path) -> BrowserTarget:
+def firefox_target(
+    manifest_dir: Path,
+    windows_registry_key: str | None = None,
+) -> BrowserTarget:
     return BrowserTarget(
         key="firefox",
         display_name="Firefox",
         family="firefox",
         profile_root=None,
         manifest_dir=manifest_dir,
+        windows_registry_key=windows_registry_key,
         default_extension_ids=(FIREFOX_EXTENSION_ID,),
     )
 
