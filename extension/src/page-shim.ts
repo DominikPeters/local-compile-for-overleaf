@@ -3,10 +3,10 @@ import {
   type PageRequestPayload,
 } from './types'
 
-const BYPASS_NEXT_COMPILE = 'OLLC_BYPASS_NEXT_COMPILE'
-const EXTENSION_RESPONSE = 'OLLC_EXTENSION_RESPONSE'
-const PAGE_REQUEST = 'OLLC_PAGE_REQUEST'
-const LOG_PREFIX = '[OLLC]'
+const BYPASS_NEXT_COMPILE = 'LCFO_BYPASS_NEXT_COMPILE'
+const EXTENSION_RESPONSE = 'LCFO_EXTENSION_RESPONSE'
+const PAGE_REQUEST = 'LCFO_PAGE_REQUEST'
+const LOG_PREFIX = '[LCFO]'
 
 type PendingRequest = {
   resolve: (value: unknown) => void

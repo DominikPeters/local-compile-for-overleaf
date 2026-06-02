@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import sys
 
-from overleaf_local_compile.native import native_allowed_origins, read_message, write_message
+from local_compile_for_overleaf.native import native_allowed_origins, read_message, write_message
 
 
 def test_native_message_round_trip() -> None:
@@ -21,7 +21,7 @@ def test_native_allowed_origins_reads_chrome_extension_argv(
         sys,
         "argv",
         [
-            "overleaf-local-compile",
+            "local-compile-for-overleaf",
             "chrome-extension://abcdefghijklmnop/",
             "--ignored",
         ],

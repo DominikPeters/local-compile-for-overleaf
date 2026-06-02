@@ -1,5 +1,5 @@
 {
-  "name": "@overleaf-local-compile/extension",
+  "name": "@local-compile-for-overleaf/extension",
   "private": true,
   "version": "0.1.0",
   "type": "module",

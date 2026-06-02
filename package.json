@@ -1,5 +1,5 @@
 {
-  "name": "overleaf-local-compile",
+  "name": "local-compile-for-overleaf",
   "private": true,
   "version": "0.1.0",
   "workspaces": [

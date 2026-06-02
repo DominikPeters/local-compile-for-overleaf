@@ -123,7 +123,7 @@ def native_allowed_origins() -> set[str]:
 
 def log_event(message: str, fields: dict[str, Any] | None = None) -> None:
     try:
-        log_dir = Path.home() / "Library/Logs/overleaf-local-compile"
+        log_dir = Path.home() / "Library/Logs/local-compile-for-overleaf"
         log_dir.mkdir(parents=True, exist_ok=True)
         record = {
             "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

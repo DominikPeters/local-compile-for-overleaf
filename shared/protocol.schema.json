@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://overleaf-local-compile.local/protocol.schema.json",
-  "title": "Overleaf Local Compile Protocol",
+  "$id": "https://local-compile-for-overleaf.local/protocol.schema.json",
+  "title": "Local Compile for Overleaf Protocol",
   "type": "object",
   "definitions": {
     "ProjectFile": {

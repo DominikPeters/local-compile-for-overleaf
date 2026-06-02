@@ -8,8 +8,8 @@ import type {
 } from './types'
 import { shapeCompileResponse } from './compile-response'
 
-const HOST_NAME = 'com.overleaf_local_compile.host'
-const LOG_PREFIX = '[OLLC]'
+const HOST_NAME = 'de.dominik_peters.local_compile_for_overleaf'
+const LOG_PREFIX = '[LCFO]'
 const DEBUG_BUILD = 'native-debug-2026-06-01T00:05Z'
 const IDLE_SHUTDOWN_MS = 5 * 60 * 1000
 
@@ -36,7 +36,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeRequest, _sender, sendResp
         validationProblems: null,
         pdfCachingMinChunkSize: 0,
         error: error instanceof Error ? error.message : String(error),
-        ollcDebug: nativeDebugState(),
+        lcfoDebug: nativeDebugState(),
       })
     }
   )

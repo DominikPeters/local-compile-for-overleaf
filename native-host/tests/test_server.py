@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from overleaf_local_compile import server as server_module
-from overleaf_local_compile.server import (
+from local_compile_for_overleaf import server as server_module
+from local_compile_for_overleaf.server import (
     DRAFT_PREFIX,
     LocalCompileServer,
     build_latexmk_command,
@@ -54,7 +54,7 @@ def test_output_file_uses_tokenized_viewer_path(tmp_path: Path) -> None:
     output = server.output_file("project", "build", "output.pdf", pdf)
 
     assert output["path"] == "output.pdf"
-    assert not output["url"].startswith("/ollc/test-token/")
+    assert not output["url"].startswith("/lcfo/test-token/")
     token = output["url"].split("/")[2]
     assert server.output_token_matches(token, "project", "build")
     assert output["size"] == len(b"%PDF-1.7\n")

@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from overleaf_local_compile.server import LocalCompileServer, find_executable
+from local_compile_for_overleaf.server import LocalCompileServer, find_executable
 
 pytestmark = pytest.mark.tex
 

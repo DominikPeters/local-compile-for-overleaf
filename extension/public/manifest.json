@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Overleaf Local Compile",
+  "name": "Local Compile for Overleaf",
   "version": "0.1.0",
-  "description": "Compile Overleaf projects locally and feed the result into Overleaf's PDF preview.",
+  "description": "Unofficial helper to compile Overleaf projects locally and feed the result into Overleaf's PDF preview.",
   "permissions": ["nativeMessaging"],
   "host_permissions": [
     "https://www.overleaf.com/*",

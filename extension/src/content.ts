@@ -4,10 +4,10 @@ import {
   type RuntimeRequest,
 } from './types'
 
-const BYPASS_NEXT_COMPILE = 'OLLC_BYPASS_NEXT_COMPILE'
-const EXTENSION_RESPONSE = 'OLLC_EXTENSION_RESPONSE'
-const PAGE_REQUEST = 'OLLC_PAGE_REQUEST'
-const LOG_PREFIX = '[OLLC]'
+const BYPASS_NEXT_COMPILE = 'LCFO_BYPASS_NEXT_COMPILE'
+const EXTENSION_RESPONSE = 'LCFO_EXTENSION_RESPONSE'
+const PAGE_REQUEST = 'LCFO_PAGE_REQUEST'
+const LOG_PREFIX = '[LCFO]'
 import { ProjectSnapshotLoader } from './project-snapshot'
 
 const snapshotLoaders = new Map<string, ProjectSnapshotLoader>()
@@ -120,7 +120,7 @@ function installCompileOnWebButton() {
 }
 
 function ensureCompileOnWebButton() {
-  if (document.querySelector('[data-ollc-compile-on-web]')) return
+  if (document.querySelector('[data-lcfo-compile-on-web]')) return
 
   const group = document.querySelector<HTMLElement>('.compile-button-group')
   const compileButton = group?.querySelector<HTMLButtonElement>('.compile-button')
@@ -129,8 +129,8 @@ function ensureCompileOnWebButton() {
   const button = document.createElement('button')
   button.type = 'button'
   button.textContent = 'Compile on web'
-  button.dataset.ollcCompileOnWeb = 'true'
-  button.className = 'btn btn-secondary btn-sm ollc-compile-on-web'
+  button.dataset.lcfoCompileOnWeb = 'true'
+  button.className = 'btn btn-secondary btn-sm lcfo-compile-on-web'
   button.style.marginLeft = '6px'
   button.style.height = '28px'
   button.style.alignSelf = 'center'

@@ -29,16 +29,16 @@ COMPILER_FLAGS = {
     "pdflatex": "-pdf",
     "xelatex": "-xelatex",
 }
-MAX_JSON_BODY_BYTES = int(os.getenv("OLLC_MAX_JSON_BODY_BYTES", str(128 * 1024 * 1024)))
-MAX_SNAPSHOT_FILES = int(os.getenv("OLLC_MAX_SNAPSHOT_FILES", "20000"))
+MAX_JSON_BODY_BYTES = int(os.getenv("LCFO_MAX_JSON_BODY_BYTES", str(128 * 1024 * 1024)))
+MAX_SNAPSHOT_FILES = int(os.getenv("LCFO_MAX_SNAPSHOT_FILES", "20000"))
 MAX_SNAPSHOT_FILE_BYTES = int(
-    os.getenv("OLLC_MAX_SNAPSHOT_FILE_BYTES", str(64 * 1024 * 1024))
+    os.getenv("LCFO_MAX_SNAPSHOT_FILE_BYTES", str(64 * 1024 * 1024))
 )
-MAX_LATEXMK_FLAGS = int(os.getenv("OLLC_MAX_LATEXMK_FLAGS", "32"))
-MAX_LATEXMK_FLAG_BYTES = int(os.getenv("OLLC_MAX_LATEXMK_FLAG_BYTES", "512"))
-MAX_PROJECTS = int(os.getenv("OLLC_MAX_PROJECTS", "50"))
-OUTPUT_TOKEN_TTL_SECONDS = int(os.getenv("OLLC_OUTPUT_TOKEN_TTL_SECONDS", str(60 * 60)))
-STOP_GRACE_SECONDS = float(os.getenv("OLLC_STOP_GRACE_SECONDS", "2"))
+MAX_LATEXMK_FLAGS = int(os.getenv("LCFO_MAX_LATEXMK_FLAGS", "32"))
+MAX_LATEXMK_FLAG_BYTES = int(os.getenv("LCFO_MAX_LATEXMK_FLAG_BYTES", "512"))
+MAX_PROJECTS = int(os.getenv("LCFO_MAX_PROJECTS", "50"))
+OUTPUT_TOKEN_TTL_SECONDS = int(os.getenv("LCFO_OUTPUT_TOKEN_TTL_SECONDS", str(60 * 60)))
+STOP_GRACE_SECONDS = float(os.getenv("LCFO_STOP_GRACE_SECONDS", "2"))
 GENERATED_FINAL_OUTPUTS = {
     "output.pdf",
     "output.log",
@@ -184,7 +184,7 @@ class LocalCompileServer:
 
             def _match_output_route(self, route: str) -> tuple[str, str, str, str] | None:
                 match = re.fullmatch(
-                    r"/ollc/([^/]+)/project/([^/]+)/build/([^/]+)/output/(.+)", route
+                    r"/lcfo/([^/]+)/project/([^/]+)/build/([^/]+)/output/(.+)", route
                 )
                 if not match:
                     return None
@@ -451,7 +451,7 @@ class LocalCompileServer:
         }
 
     def output_file(self, project_id: str, build_id: str, rel: str, path: Path) -> dict[str, Any]:
-        url = f"/ollc/{quote(self.output_token(project_id, build_id))}/project/{quote(project_id)}/build/{quote(build_id)}/output/{quote(rel)}"
+        url = f"/lcfo/{quote(self.output_token(project_id, build_id))}/project/{quote(project_id)}/build/{quote(build_id)}/output/{quote(rel)}"
         result: dict[str, Any] = {
             "path": rel,
             "url": url,
@@ -679,8 +679,8 @@ class HTTPError(Exception):
 
 def cache_root() -> Path:
     if os.name == "posix" and Path.home().joinpath("Library").exists():
-        return Path.home() / "Library/Caches/overleaf-local-compile"
-    return Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache")) / "overleaf-local-compile"
+        return Path.home() / "Library/Caches/local-compile-for-overleaf"
+    return Path(os.getenv("XDG_CACHE_HOME", Path.home() / ".cache")) / "local-compile-for-overleaf"
 
 
 def source_manifest_path(project_dir: Path) -> Path:
@@ -832,7 +832,7 @@ def remove_previous_final_outputs(work_dir: Path) -> None:
 
 
 def should_publish_output_file(path: Path, source_manifest: set[str]) -> bool:
-    if path.parts and path.parts[0] == ".ollc":
+    if path.parts and path.parts[0] == ".lcfo":
         return False
     if path.as_posix() in GENERATED_FINAL_OUTPUTS:
         return True
@@ -868,7 +868,7 @@ def terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
 
 def log_event(message: str, fields: dict[str, Any] | None = None) -> None:
     try:
-        log_dir = Path.home() / "Library/Logs/overleaf-local-compile"
+        log_dir = Path.home() / "Library/Logs/local-compile-for-overleaf"
         log_dir.mkdir(parents=True, exist_ok=True)
         record = {
             "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -882,7 +882,7 @@ def log_event(message: str, fields: dict[str, Any] | None = None) -> None:
 
 
 def find_executable(name: str) -> str | None:
-    configured = os.getenv(f"OLLC_{name.upper()}_PATH")
+    configured = os.getenv(f"LCFO_{name.upper()}_PATH")
     candidates = [
         configured,
         shutil.which(name),
@@ -1081,7 +1081,7 @@ def write_diagnostics_log(build_dir: Path, diagnostics: dict[str, Any], message:
 def format_diagnostics(diagnostics: dict[str, Any], status: str) -> str:
     command = " ".join(diagnostics.get("command", []))
     parts = [
-        "===== Overleaf Local Compile diagnostics =====",
+        "===== Local Compile for Overleaf diagnostics =====",
         f"status: {status}",
         f"projectId: {diagnostics.get('projectId')}",
         f"buildId: {diagnostics.get('buildId')}",

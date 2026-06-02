@@ -7,13 +7,13 @@ import shutil
 import sys
 from pathlib import Path
 
-HOST_NAME = "com.overleaf_local_compile.host"
+HOST_NAME = "de.dominik_peters.local_compile_for_overleaf"
 
 
 def install_chrome_host(extension_id: str, host_path: str | None = None) -> Path:
-    executable = host_path or shutil.which("overleaf-local-compile")
+    executable = host_path or shutil.which("local-compile-for-overleaf")
     if not executable:
-        raise SystemExit("Could not find overleaf-local-compile on PATH")
+        raise SystemExit("Could not find local-compile-for-overleaf on PATH")
 
     destination = chrome_native_messaging_dir() / f"{HOST_NAME}.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -21,7 +21,7 @@ def install_chrome_host(extension_id: str, host_path: str | None = None) -> Path
 
     manifest = {
         "name": HOST_NAME,
-        "description": "Overleaf Local Compile native host",
+        "description": "Unofficial local compile helper for Overleaf projects",
         "path": str(wrapper),
         "type": "stdio",
         "allowed_origins": [f"chrome-extension://{extension_id}/"],
@@ -39,7 +39,7 @@ def write_host_wrapper(directory: Path, executable: Path) -> Path:
         "\n".join(
             [
                 "#!/bin/sh",
-                "LOG_DIR=\"$HOME/Library/Logs/overleaf-local-compile\"",
+                "LOG_DIR=\"$HOME/Library/Logs/local-compile-for-overleaf\"",
                 "mkdir -p \"$LOG_DIR\"",
                 "PATH=\"/Library/TeX/texbin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH\"",
                 "export PATH",

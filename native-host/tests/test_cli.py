@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from overleaf_local_compile import cli
+from local_compile_for_overleaf import cli
 
 
 def test_chrome_origin_argument_starts_native_host(monkeypatch) -> None:

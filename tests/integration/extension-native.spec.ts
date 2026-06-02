@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path'
 
 const REPO_ROOT = resolve(__dirname, '../..')
 const EXTENSION_DIST = join(REPO_ROOT, 'extension/dist')
-const HOST_NAME = 'com.overleaf_local_compile.host'
+const HOST_NAME = 'de.dominik_peters.local_compile_for_overleaf'
 const PROJECT_ID = 'project-123'
 
 test.describe('Chrome extension with real Native Messaging host', () => {
@@ -19,12 +19,12 @@ test.describe('Chrome extension with real Native Messaging host', () => {
   let cleanupNativeHostManifest: (() => Promise<void>) | undefined
 
   test.beforeEach(async () => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'ollc-e2e-'))
+    tempRoot = await mkdtemp(join(tmpdir(), 'lcfo-e2e-'))
     mockOverleaf = await startMockOverleaf()
     fakeTools = await installFakeTools(tempRoot)
     const testExtension = await installTestExtension(tempRoot)
     cleanupNativeHostManifest = await installNativeHostManifest({
-      home: process.env.OLLC_E2E_NATIVE_MANIFEST_HOME || homedir(),
+      home: process.env.LCFO_E2E_NATIVE_MANIFEST_HOME || homedir(),
       extraDirs: [join(tempRoot, 'profile', 'NativeMessagingHosts')],
       wrapperPath: await installNativeHostWrapper(tempRoot),
       extensionId: testExtension.extensionId,
@@ -32,7 +32,7 @@ test.describe('Chrome extension with real Native Messaging host', () => {
 
     context = await chromium.launchPersistentContext(join(tempRoot, 'profile'), {
       channel: process.env.PLAYWRIGHT_CHROME_CHANNEL || 'chromium',
-      headless: process.env.OLLC_E2E_HEADLESS !== '0',
+      headless: process.env.LCFO_E2E_HEADLESS !== '0',
       args: [
         `--disable-extensions-except=${testExtension.path}`,
         `--load-extension=${testExtension.path}`,
@@ -41,9 +41,9 @@ test.describe('Chrome extension with real Native Messaging host', () => {
         ...process.env,
         HOME: join(tempRoot, 'home'),
         PYTHONPATH: join(REPO_ROOT, 'native-host/src'),
-        OLLC_LATEXMK_PATH: fakeTools.latexmk,
-        OLLC_SYNCTEX_PATH: fakeTools.synctex,
-        OLLC_FAKE_LATEXMK_LOG: fakeTools.latexmkLog,
+        LCFO_LATEXMK_PATH: fakeTools.latexmk,
+        LCFO_SYNCTEX_PATH: fakeTools.synctex,
+        LCFO_FAKE_LATEXMK_LOG: fakeTools.latexmkLog,
       },
     })
   })
@@ -237,12 +237,12 @@ function extensionIdFromPublicKey(publicKeyDer: Buffer): string {
 }
 
 async function installNativeHostWrapper(tempRoot: string): Promise<string> {
-  const wrapperPath = join(tempRoot, 'overleaf-local-compile-host')
+  const wrapperPath = join(tempRoot, 'local-compile-for-overleaf-host')
   await writeFile(
     wrapperPath,
     [
       '#!/bin/sh',
-      'exec "${PYTHON:-python3}" -m overleaf_local_compile "$@"',
+      'exec "${PYTHON:-python3}" -m local_compile_for_overleaf "$@"',
       '',
     ].join('\n'),
     'utf8'
@@ -264,7 +264,7 @@ async function installNativeHostManifest({
 }): Promise<() => Promise<void>> {
   const manifest = {
     name: HOST_NAME,
-    description: 'Overleaf Local Compile test host',
+    description: 'Local Compile for Overleaf test host',
     path: wrapperPath,
     type: 'stdio',
     allowed_origins: [`chrome-extension://${extensionId}/`],
@@ -470,7 +470,7 @@ fs.writeFileSync(aux, previousAux + 'run\\n')
 fs.writeFileSync(path.join(workDir, 'output.pdf'), '%PDF-1.4\\n% fake local compile ' + crypto.randomBytes(4).toString('hex') + '\\n')
 fs.writeFileSync(path.join(workDir, 'output.log'), 'fake latexmk log\\n')
 fs.writeFileSync(path.join(workDir, 'output.synctex.gz'), 'fake synctex\\n')
-fs.appendFileSync(process.env.OLLC_FAKE_LATEXMK_LOG, JSON.stringify({
+fs.appendFileSync(process.env.LCFO_FAKE_LATEXMK_LOG, JSON.stringify({
   argv,
   cwd: workDir,
   root,

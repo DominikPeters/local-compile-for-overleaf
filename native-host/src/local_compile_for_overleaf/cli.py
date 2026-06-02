@@ -13,7 +13,7 @@ def main(argv: list[str] | None = None) -> int:
         run_native_host()
         return 0
 
-    parser = argparse.ArgumentParser(prog="overleaf-local-compile")
+    parser = argparse.ArgumentParser(prog="local-compile-for-overleaf")
     subparsers = parser.add_subparsers(dest="command")
 
     install = subparsers.add_parser("install-chrome-host")
