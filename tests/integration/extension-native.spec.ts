@@ -293,8 +293,7 @@ function nativeHostManifestDirs(home: string): string[] {
     return [
       join(home, 'Library/Application Support/Chromium/NativeMessagingHosts'),
       join(home, 'Library/Application Support/Google/Chrome/NativeMessagingHosts'),
-      join(home, 'Library/Application Support/Google/Chrome for Testing/NativeMessagingHosts'),
-      join(home, 'Library/Application Support/Chrome for Testing/NativeMessagingHosts'),
+      join(home, 'Library/Application Support/Google/ChromeForTesting/NativeMessagingHosts'),
       join(home, 'Library/Application Support/Microsoft Edge/NativeMessagingHosts'),
     ]
   }
@@ -304,6 +303,7 @@ function nativeHostManifestDirs(home: string): string[] {
   return [
     join(home, '.config/chromium/NativeMessagingHosts'),
     join(home, '.config/google-chrome/NativeMessagingHosts'),
+    join(home, '.config/google-chrome-for-testing/NativeMessagingHosts'),
     join(home, '.config/microsoft-edge/NativeMessagingHosts'),
   ]
 }
