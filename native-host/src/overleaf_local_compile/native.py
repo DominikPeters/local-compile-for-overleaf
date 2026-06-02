@@ -46,7 +46,7 @@ def run_native_host(
             log_event("native host message", {"id": message_id, "type": message_type})
             if message_type == "hello":
                 if server is None:
-                    server = LocalCompileServer()
+                    server = LocalCompileServer(allowed_origins=native_allowed_origins())
                     server.start()
                     log_event(
                         "local server started",
@@ -111,6 +111,14 @@ def write_message(stream: BinaryIO, message: dict[str, Any]) -> None:
     stream.write(struct.pack("<I", len(encoded)))
     stream.write(encoded)
     stream.flush()
+
+
+def native_allowed_origins() -> set[str]:
+    return {
+        arg.rstrip("/")
+        for arg in sys.argv[1:]
+        if arg.startswith("chrome-extension://")
+    }
 
 
 def log_event(message: str, fields: dict[str, Any] | None = None) -> None:

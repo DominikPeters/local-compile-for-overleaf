@@ -16,3 +16,6 @@ overleaf-local-compile = "overleaf_local_compile.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "tex: tests that run real TeX tools such as latexmk, bibtex, makeindex, or makeglossaries",
+]

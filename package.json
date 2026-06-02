@@ -9,9 +9,12 @@
     "build": "npm run -w extension build",
     "test": "npm run -w extension test && python -m pytest native-host/tests",
     "test:all": "npm test && npm run test:integration",
+    "test:browser": "npm run test:integration",
     "test:extension": "npm run -w extension test",
     "test:integration": "npm run build && playwright test",
-    "test:native": "python -m pytest native-host/tests"
+    "test:native": "python -m pytest native-host/tests",
+    "test:native:fast": "python -m pytest native-host/tests -m 'not tex'",
+    "test:tex": "python -m pytest native-host/tests -m tex"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0"

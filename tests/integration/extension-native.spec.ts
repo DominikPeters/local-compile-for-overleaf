@@ -133,6 +133,7 @@ test.describe('Chrome extension with real Native Messaging host', () => {
         draft: true,
         stopOnFirstError: true,
         enableShellEscape: true,
+        flags: ['-recorder'],
         check: 'silent',
         incrementalCompilesEnabled: true,
       }
@@ -142,7 +143,7 @@ test.describe('Chrome extension with real Native Messaging host', () => {
 
     const latexmkInvocations = await readJsonLines(fakeTools.latexmkLog)
     expect(latexmkInvocations.at(-1).argv).toEqual(
-      expect.arrayContaining(['-halt-on-error', '-shell-escape', '-xelatex'])
+      expect.arrayContaining(['-halt-on-error', '-shell-escape', '-recorder', '-xelatex'])
     )
     expect(latexmkInvocations.at(-1).rootContent).toContain(
       '\\PassOptionsToPackage{draft}{graphicx}'

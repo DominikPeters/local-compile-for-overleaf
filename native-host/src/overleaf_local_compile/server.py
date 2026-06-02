@@ -30,6 +30,12 @@ COMPILER_FLAGS = {
     "xelatex": "-xelatex",
 }
 MAX_JSON_BODY_BYTES = int(os.getenv("OLLC_MAX_JSON_BODY_BYTES", str(128 * 1024 * 1024)))
+MAX_SNAPSHOT_FILES = int(os.getenv("OLLC_MAX_SNAPSHOT_FILES", "20000"))
+MAX_SNAPSHOT_FILE_BYTES = int(
+    os.getenv("OLLC_MAX_SNAPSHOT_FILE_BYTES", str(64 * 1024 * 1024))
+)
+MAX_LATEXMK_FLAGS = int(os.getenv("OLLC_MAX_LATEXMK_FLAGS", "32"))
+MAX_LATEXMK_FLAG_BYTES = int(os.getenv("OLLC_MAX_LATEXMK_FLAG_BYTES", "512"))
 MAX_PROJECTS = int(os.getenv("OLLC_MAX_PROJECTS", "50"))
 OUTPUT_TOKEN_TTL_SECONDS = int(os.getenv("OLLC_OUTPUT_TOKEN_TTL_SECONDS", str(60 * 60)))
 STOP_GRACE_SECONDS = float(os.getenv("OLLC_STOP_GRACE_SECONDS", "2"))
@@ -43,9 +49,12 @@ GENERATED_FINAL_OUTPUTS = {
 
 
 class LocalCompileServer:
-    def __init__(self) -> None:
+    def __init__(self, allowed_origins: set[str] | None = None) -> None:
         self.token = secrets.token_urlsafe(32)
         self.cache_root = cache_root()
+        self.allowed_api_origins = {
+            normalize_origin(origin) for origin in (allowed_origins or set())
+        }
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), self._handler_class())
         self.port = self.httpd.server_address[1]
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
@@ -76,6 +85,9 @@ class LocalCompileServer:
             server_version = "OverleafLocalCompile/0.1"
 
             def do_OPTIONS(self) -> None:  # noqa: N802
+                if not self._origin_allowed_for_route():
+                    self._json({"error": "Origin not allowed"}, HTTPStatus.FORBIDDEN)
+                    return
                 self.send_response(HTTPStatus.NO_CONTENT)
                 self._cors()
                 self.end_headers()
@@ -208,13 +220,32 @@ class LocalCompileServer:
                 self.wfile.write(encoded)
 
             def _cors(self) -> None:
-                self.send_header("Access-Control-Allow-Origin", "*")
+                origin = self.headers.get("Origin")
+                allowed_origin = outer.allowed_cors_origin(
+                    origin,
+                    output_route=self._match_output_route(urlparse(self.path).path) is not None,
+                )
+                if allowed_origin:
+                    self.send_header("Access-Control-Allow-Origin", allowed_origin)
                 self.send_header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
                 self.send_header("Access-Control-Allow-Headers", "Authorization,Content-Type,Range")
                 self.send_header("Access-Control-Expose-Headers", "Accept-Ranges,Content-Length,Content-Range")
 
             def _method_not_allowed(self) -> None:
                 self._json({"error": "Method not allowed"}, HTTPStatus.METHOD_NOT_ALLOWED)
+
+            def _origin_allowed_for_route(self) -> bool:
+                origin = self.headers.get("Origin")
+                if not origin:
+                    return True
+                return (
+                    outer.allowed_cors_origin(
+                        origin,
+                        output_route=self._match_output_route(urlparse(self.path).path)
+                        is not None,
+                    )
+                    is not None
+                )
 
         return Handler
 
@@ -225,18 +256,18 @@ class LocalCompileServer:
         work_dir.mkdir(parents=True, exist_ok=True)
         previous_manifest = read_source_manifest(self.project_dir(project_id))
         written_paths: set[str] = set()
-        for file in snapshot.get("files", []):
+        files = snapshot.get("files", [])
+        if not isinstance(files, list):
+            raise ValueError("Snapshot files must be a list")
+        if len(files) > MAX_SNAPSHOT_FILES:
+            raise ValueError(f"Snapshot contains more than {MAX_SNAPSHOT_FILES} files")
+        for file in files:
             try:
                 path = str(file["path"])
                 source_target = safe_join(source_dir, path)
                 work_target = safe_join(work_dir, path)
                 written_paths.add(PurePosixPath(path).as_posix())
-                if file["encoding"] == "base64":
-                    content = base64.b64decode(file["content"])
-                elif file["encoding"] == "utf8":
-                    content = file["content"].encode("utf-8", errors="surrogateescape")
-                else:
-                    raise ValueError(f"Unsupported file encoding: {file['encoding']}")
+                content = snapshot_file_content(file)
                 write_if_changed(source_target, content)
                 write_if_changed(work_target, content)
             except Exception as error:
@@ -456,13 +487,34 @@ class LocalCompileServer:
         else:
             body = content
             handler.send_response(HTTPStatus.OK)
-        handler.send_header("Access-Control-Allow-Origin", "*")
-        handler.send_header("Access-Control-Expose-Headers", "Accept-Ranges,Content-Length,Content-Range")
+        self.send_output_cors_headers(handler)
         handler.send_header("Accept-Ranges", "bytes")
         handler.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
         handler.send_header("Content-Length", str(len(body)))
         handler.end_headers()
         handler.wfile.write(body)
+
+    def allowed_cors_origin(self, origin: str | None, output_route: bool = False) -> str | None:
+        if not origin:
+            return None
+        normalized = normalize_origin(origin)
+        if normalized in self.allowed_api_origins:
+            return normalized
+        if output_route and is_allowed_output_origin(normalized):
+            return normalized
+        return None
+
+    def send_output_cors_headers(self, handler: BaseHTTPRequestHandler) -> None:
+        allowed_origin = self.allowed_cors_origin(
+            handler.headers.get("Origin"),
+            output_route=True,
+        )
+        if allowed_origin:
+            handler.send_header("Access-Control-Allow-Origin", allowed_origin)
+        handler.send_header(
+            "Access-Control-Expose-Headers",
+            "Accept-Ranges,Content-Length,Content-Range",
+        )
 
     def output_token(self, project_id: str, build_id: str) -> str:
         if not hasattr(self, "output_token_lock"):
@@ -662,6 +714,21 @@ def write_if_changed(path: Path, content: bytes) -> None:
         path.write_bytes(content)
 
 
+def snapshot_file_content(file: dict[str, Any]) -> bytes:
+    encoding = file["encoding"]
+    if encoding == "base64":
+        content = base64.b64decode(str(file["content"]), validate=True)
+    elif encoding == "utf8":
+        content = str(file["content"]).encode("utf-8", errors="surrogateescape")
+    else:
+        raise ValueError(f"Unsupported file encoding: {encoding}")
+    if len(content) > MAX_SNAPSHOT_FILE_BYTES:
+        raise ValueError(
+            f"Snapshot file exceeds {MAX_SNAPSHOT_FILE_BYTES} decoded bytes"
+        )
+    return content
+
+
 def remove_snapshot_files(base_dir: Path, paths: set[str]) -> None:
     for rel in sorted(paths, reverse=True):
         try:
@@ -719,8 +786,30 @@ def build_latexmk_command(
     ]
     if options.get("enableShellEscape") or options.get("shellEscape"):
         command.append("-shell-escape")
+    command.extend(validated_latexmk_flags(options.get("flags")))
     command.extend([compiler_flag, str(root_path)])
     return command
+
+
+def validated_latexmk_flags(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("latexmk flags must be a list")
+    if len(value) > MAX_LATEXMK_FLAGS:
+        raise ValueError(f"latexmk flags exceed {MAX_LATEXMK_FLAGS} entries")
+    flags: list[str] = []
+    for flag in value:
+        if not isinstance(flag, str):
+            raise ValueError("latexmk flags must be strings")
+        if not flag or "\x00" in flag or flag[:1] != "-":
+            raise ValueError(f"Unsafe latexmk flag: {flag!r}")
+        if len(flag.encode("utf-8")) > MAX_LATEXMK_FLAG_BYTES:
+            raise ValueError(
+                f"latexmk flag exceeds {MAX_LATEXMK_FLAG_BYTES} bytes"
+            )
+        flags.append(flag)
+    return flags
 
 
 def publish_build_outputs(work_dir: Path, build_dir: Path, source_manifest: set[str]) -> None:
@@ -853,6 +942,24 @@ def safe_segment(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
         return hashlib.sha1(value.encode("utf-8")).hexdigest()
     return value
+
+
+def normalize_origin(origin: str) -> str:
+    return origin.rstrip("/")
+
+
+def is_allowed_output_origin(origin: str) -> bool:
+    parsed = urlparse(origin)
+    if parsed.scheme == "chrome-extension":
+        return bool(parsed.netloc)
+    host = parsed.hostname or ""
+    if parsed.scheme == "https" and (
+        host == "www.overleaf.com" or host.endswith(".overleaf.com")
+    ):
+        return True
+    if parsed.scheme == "http" and host in {"127.0.0.1", "localhost"}:
+        return True
+    return False
 
 
 def safe_join(base: Path, posix_path: str) -> Path:

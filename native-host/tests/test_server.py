@@ -18,6 +18,7 @@ from overleaf_local_compile.server import (
     decode_process_output,
     ensure_output_synctex,
     inject_draft_mode,
+    is_allowed_output_origin,
     normalize_synctex_file,
     output_tex_wrapper_path,
     parse_synctex_edit_output,
@@ -99,6 +100,52 @@ def test_write_snapshot_materializes_binary_resources_from_base64(tmp_path: Path
 
     assert (server.source_dir("project") / "figures/plot.png").read_bytes() == b"\x89PNG"
     assert (server.work_dir("project") / "figures/plot.png").read_bytes() == b"\x89PNG"
+
+
+def test_write_snapshot_rejects_invalid_base64(tmp_path: Path) -> None:
+    server = LocalCompileServer.__new__(LocalCompileServer)
+    server.cache_root = tmp_path
+
+    with pytest.raises(ValueError, match="Failed to materialize"):
+        server.write_snapshot(
+            "project",
+            {
+                "files": [
+                    {"path": "bad.bin", "encoding": "base64", "content": "not base64!"}
+                ],
+            },
+        )
+
+
+def test_write_snapshot_caps_file_count_and_decoded_file_size(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = LocalCompileServer.__new__(LocalCompileServer)
+    server.cache_root = tmp_path
+    monkeypatch.setattr(server_module, "MAX_SNAPSHOT_FILES", 1)
+    monkeypatch.setattr(server_module, "MAX_SNAPSHOT_FILE_BYTES", 3)
+
+    with pytest.raises(ValueError, match="more than 1 files"):
+        server.write_snapshot(
+            "project",
+            {
+                "files": [
+                    {"path": "a.tex", "encoding": "utf8", "content": "a"},
+                    {"path": "b.tex", "encoding": "utf8", "content": "b"},
+                ],
+            },
+        )
+
+    with pytest.raises(ValueError, match="exceeds 3 decoded bytes"):
+        server.write_snapshot(
+            "project",
+            {
+                "files": [
+                    {"path": "large.tex", "encoding": "utf8", "content": "abcd"},
+                ],
+            },
+        )
 
 
 def test_write_snapshot_patches_existing_source_tree(tmp_path: Path) -> None:
@@ -251,6 +298,36 @@ def test_build_latexmk_command_maps_shell_escape_for_externalization(tmp_path: P
     )
 
     assert "-shell-escape" in command
+
+
+def test_build_latexmk_command_appends_validated_overleaf_flags(tmp_path: Path) -> None:
+    command = build_latexmk_command(
+        "latexmk",
+        tmp_path,
+        tmp_path / "main.tex",
+        {"compiler": "pdflatex", "flags": ["-shell-escape", "-recorder"]},
+    )
+
+    assert command[-4:] == [
+        "-shell-escape",
+        "-recorder",
+        "-pdf",
+        str(tmp_path / "main.tex"),
+    ]
+
+
+@pytest.mark.parametrize("flags", [["other.tex"], ["-ok", ""], ["-ok", "\x00"], "-pdf"])
+def test_build_latexmk_command_rejects_unsafe_overleaf_flags(
+    tmp_path: Path,
+    flags: object,
+) -> None:
+    with pytest.raises(ValueError, match="latexmk flags|Unsafe latexmk flag"):
+        build_latexmk_command(
+            "latexmk",
+            tmp_path,
+            tmp_path / "main.tex",
+            {"compiler": "pdflatex", "flags": flags},
+        )
 
 
 def test_clear_output_removes_builds_but_keeps_source(tmp_path: Path) -> None:
@@ -461,11 +538,34 @@ def test_localhost_server_enforces_auth_rejects_methods_and_caps_body(
 ) -> None:
     monkeypatch.setattr(server_module, "MAX_JSON_BODY_BYTES", 2)
     try:
-        server = LocalCompileServer()
+        server = LocalCompileServer(
+            allowed_origins={"chrome-extension://allowed-extension"}
+        )
     except PermissionError as error:
         pytest.skip(f"local socket binding blocked by sandbox: {error}")
     server.start()
     try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.port}/v1/projects/project/snapshot",
+            headers={"Origin": "chrome-extension://evil-extension"},
+            method="OPTIONS",
+        )
+        with pytest.raises(urllib.error.HTTPError) as disallowed_origin:
+            urllib.request.urlopen(request)
+        assert disallowed_origin.value.code == 403
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.port}/v1/projects/project/snapshot",
+            headers={"Origin": "chrome-extension://allowed-extension"},
+            method="OPTIONS",
+        )
+        with urllib.request.urlopen(request) as preflight:
+            assert preflight.status == 204
+            assert (
+                preflight.headers["Access-Control-Allow-Origin"]
+                == "chrome-extension://allowed-extension"
+            )
+
         with pytest.raises(urllib.error.HTTPError) as unauthorized:
             urllib.request.urlopen(
                 f"http://127.0.0.1:{server.port}/v1/projects/project/snapshot",
@@ -503,3 +603,22 @@ def test_localhost_server_enforces_auth_rejects_methods_and_caps_body(
         assert not_found.value.code == 404
     finally:
         server.stop()
+
+
+def test_cors_allows_configured_extension_api_origin() -> None:
+    server = LocalCompileServer.__new__(LocalCompileServer)
+    server.allowed_api_origins = {"chrome-extension://abcdefghijklmnop"}
+
+    assert (
+        server.allowed_cors_origin("chrome-extension://abcdefghijklmnop/")
+        == "chrome-extension://abcdefghijklmnop"
+    )
+    assert server.allowed_cors_origin("chrome-extension://ponmlkjihgfedcba") is None
+
+
+def test_output_cors_allows_overleaf_and_local_viewer_origins() -> None:
+    assert is_allowed_output_origin("https://www.overleaf.com")
+    assert is_allowed_output_origin("https://foo.overleaf.com")
+    assert is_allowed_output_origin("http://127.0.0.1:3000")
+    assert is_allowed_output_origin("http://localhost:3000")
+    assert not is_allowed_output_origin("https://evil.example")

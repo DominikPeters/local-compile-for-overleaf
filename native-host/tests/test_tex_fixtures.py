@@ -13,6 +13,9 @@ import pytest
 
 from overleaf_local_compile.server import LocalCompileServer, find_executable
 
+pytestmark = pytest.mark.tex
+
+
 def test_pdflatex_project_compiles_with_binary_image_resource(tmp_path: Path) -> None:
     require_tex_program("pdflatex")
     require_tex_file("graphicx.sty")
