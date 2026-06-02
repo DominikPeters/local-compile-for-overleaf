@@ -117,7 +117,7 @@ def native_allowed_origins() -> set[str]:
     return {
         arg.rstrip("/")
         for arg in sys.argv[1:]
-        if arg.startswith("chrome-extension://")
+        if arg.startswith(("chrome-extension://", "moz-extension://"))
     }
 
 

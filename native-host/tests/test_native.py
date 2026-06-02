@@ -23,8 +23,12 @@ def test_native_allowed_origins_reads_chrome_extension_argv(
         [
             "local-compile-for-overleaf",
             "chrome-extension://abcdefghijklmnop/",
+            "moz-extension://12345678-1234-1234-1234-123456789abc/",
             "--ignored",
         ],
     )
 
-    assert native_allowed_origins() == {"chrome-extension://abcdefghijklmnop"}
+    assert native_allowed_origins() == {
+        "chrome-extension://abcdefghijklmnop",
+        "moz-extension://12345678-1234-1234-1234-123456789abc",
+    }

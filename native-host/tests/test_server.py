@@ -619,6 +619,7 @@ def test_cors_allows_configured_extension_api_origin() -> None:
 def test_output_cors_allows_overleaf_and_local_viewer_origins() -> None:
     assert is_allowed_output_origin("https://www.overleaf.com")
     assert is_allowed_output_origin("https://foo.overleaf.com")
+    assert is_allowed_output_origin("moz-extension://12345678-1234-1234-1234-123456789abc")
     assert is_allowed_output_origin("http://127.0.0.1:3000")
     assert is_allowed_output_origin("http://localhost:3000")
     assert not is_allowed_output_origin("https://evil.example")

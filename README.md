@@ -14,16 +14,16 @@ npm run -w extension build
 Native host:
 
 ```sh
-pipx install -e ./native-host
-local-compile-for-overleaf install-chrome-host --extension-id <extension-id>
+python3 -m pip install --user --upgrade ./native-host
+python3 -m local_compile_for_overleaf
 ```
 
 The extension is currently intended to be loaded unpacked from `extension/dist`.
 
-For the current unpacked development Chrome install, the command is:
+For the current unpacked development Chrome install, pass the unpacked extension ID:
 
 ```sh
-local-compile-for-overleaf install-chrome-host --extension-id ejalmpfkcbnhjdgmcddpapmchodhhcoa
+python3 -m local_compile_for_overleaf install --browser chrome --extension-id ejalmpfkcbnhjdgmcddpapmchodhhcoa
 ```
 
 ## Debugging
@@ -38,9 +38,9 @@ Useful inspection points:
 - Overleaf raw logs: local compiles always publish an `output.log`. It includes the exact `latexmk` command, source/build directories, return code, stdout, and stderr.
 - Local cache: source and build directories are under `~/Library/Caches/local-compile-for-overleaf`.
 
-If you change native-host code after installing with `pipx`, reinstall it:
+If you change native-host code after installing with pip, reinstall it:
 
 ```sh
-pipx install --force -e ./native-host
-local-compile-for-overleaf install-chrome-host --extension-id ejalmpfkcbnhjdgmcddpapmchodhhcoa
+python3 -m pip install --user --upgrade ./native-host
+python3 -m local_compile_for_overleaf install --browser chrome --extension-id ejalmpfkcbnhjdgmcddpapmchodhhcoa
 ```

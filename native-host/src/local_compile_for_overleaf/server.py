@@ -950,7 +950,7 @@ def normalize_origin(origin: str) -> str:
 
 def is_allowed_output_origin(origin: str) -> bool:
     parsed = urlparse(origin)
-    if parsed.scheme == "chrome-extension":
+    if parsed.scheme in {"chrome-extension", "moz-extension"}:
         return bool(parsed.netloc)
     host = parsed.hostname or ""
     if parsed.scheme == "https" and (
