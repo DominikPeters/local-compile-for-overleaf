@@ -435,7 +435,9 @@ def test_terminate_process_tree_escalates_to_sigkill(monkeypatch: pytest.MonkeyP
         def wait(self, timeout: float) -> None:
             raise subprocess.TimeoutExpired("fake", timeout)
 
+    sigkill = getattr(signal, "SIGKILL", 9)
     monkeypatch.setattr(server_module.os, "name", "posix")
+    monkeypatch.setattr(server_module.signal, "SIGKILL", sigkill, raising=False)
     monkeypatch.setattr(
         server_module.os,
         "killpg",
@@ -445,7 +447,7 @@ def test_terminate_process_tree_escalates_to_sigkill(monkeypatch: pytest.MonkeyP
 
     terminate_process_tree(FakeProcess())  # type: ignore[arg-type]
 
-    assert calls == [signal.SIGTERM, signal.SIGKILL]
+    assert calls == [signal.SIGTERM, sigkill]
 
 
 def test_prune_old_builds_removes_only_oldest_builds(tmp_path: Path) -> None:
