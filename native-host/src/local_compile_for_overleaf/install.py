@@ -20,9 +20,9 @@ PYTHON_MODULE = "local_compile_for_overleaf"
 CLI_NAME = "local-compile-for-overleaf"
 FIREFOX_EXTENSION_ID = "local-compile-for-overleaf@dominik-peters.de"
 
-# Fill these once the store listings exist. Until then, dev installs can pass
-# --extension-id or rely on best-effort detection from browser profile data.
-PUBLISHED_CHROME_EXTENSION_IDS: tuple[str, ...] = ()
+# Published browser extension IDs. Dev installs can still pass --extension-id
+# or rely on best-effort detection from browser profile data.
+PUBLISHED_CHROME_EXTENSION_IDS: tuple[str, ...] = ("nmdbichdffibgheeggobljjipcangmdf",)
 PUBLISHED_EDGE_EXTENSION_IDS: tuple[str, ...] = ()
 
 

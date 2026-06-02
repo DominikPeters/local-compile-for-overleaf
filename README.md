@@ -22,12 +22,19 @@ python3 -m pip install --user --upgrade ./native-host
 python3 -m local_compile_for_overleaf
 ```
 
-The extension is currently intended to be loaded unpacked from `extension/dist`.
-
-For the current unpacked development Chrome install, pass the unpacked extension ID:
+For the Chrome Web Store extension, the host installer already knows the published extension ID:
 
 ```sh
-python3 -m local_compile_for_overleaf install --browser chrome --extension-id ejalmpfkcbnhjdgmcddpapmchodhhcoa
+python3 -m pip install --user --upgrade local-compile-for-overleaf
+python3 -m local_compile_for_overleaf
+```
+
+Published Chrome extension ID: `nmdbichdffibgheeggobljjipcangmdf`.
+
+For an unpacked development Chrome install, pass the unpacked extension ID:
+
+```sh
+python3 -m local_compile_for_overleaf install --browser chrome --extension-id <unpacked-extension-id>
 ```
 
 ## Debugging
@@ -46,5 +53,5 @@ If you change native-host code after installing with pip, reinstall it:
 
 ```sh
 python3 -m pip install --user --upgrade ./native-host
-python3 -m local_compile_for_overleaf install --browser chrome --extension-id ejalmpfkcbnhjdgmcddpapmchodhhcoa
+python3 -m local_compile_for_overleaf
 ```

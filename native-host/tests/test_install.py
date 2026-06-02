@@ -69,6 +69,34 @@ def test_install_manifests_uses_firefox_default_id_without_chrome_id(
     assert "latexmk was not found" in report.warnings[0]
 
 
+def test_install_manifests_uses_published_chrome_id_by_default(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    launcher = tmp_path / "launcher.sh"
+    launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+    target = install.BrowserTarget(
+        key="chrome",
+        display_name="Google Chrome",
+        family="chromium",
+        profile_root=tmp_path / "chrome",
+        manifest_dir=tmp_path / "chrome" / "NativeMessagingHosts",
+        default_extension_ids=install.chrome_extension_ids(),
+    )
+    target.profile_root.mkdir()
+    monkeypatch.setattr(install, "browser_targets", lambda: [target])
+    monkeypatch.setattr(install, "ensure_launcher", lambda _host_path=None: launcher)
+    monkeypatch.setattr(install, "find_executable", lambda _name: None)
+
+    report = install.install_manifests(browsers=["chrome"])
+
+    assert report.installed[0].extension_ids == ["nmdbichdffibgheeggobljjipcangmdf"]
+    manifest = json.loads(report.installed[0].path.read_text(encoding="utf-8"))
+    assert manifest["allowed_origins"] == [
+        "chrome-extension://nmdbichdffibgheeggobljjipcangmdf/"
+    ]
+
+
 def test_browser_targets_macos_manifest_locations(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(install.sys, "platform", "darwin")
     monkeypatch.setattr(install.Path, "home", lambda: tmp_path)

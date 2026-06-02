@@ -13,7 +13,7 @@ def test_chrome_origin_argument_starts_native_host(monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "run_native_host", fake_run_native_host)
 
-    assert cli.main(["chrome-extension://ejalmpfkcbnhjdgmcddpapmchodhhcoa/"]) == 0
+    assert cli.main(["chrome-extension://nmdbichdffibgheeggobljjipcangmdf/"]) == 0
     assert called
 
 
