@@ -6,10 +6,16 @@ build-backend = "hatchling.build"
 name = "local-compile-for-overleaf"
 version = "0.1.0"
 description = "Unofficial Native Messaging host for compiling Overleaf projects locally."
+readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Dominik Peters" }]
 license = "AGPL-3.0-only"
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/DominikPeters/local-compile-for-overleaf"
+Source = "https://github.com/DominikPeters/local-compile-for-overleaf"
+Issues = "https://github.com/DominikPeters/local-compile-for-overleaf/issues"
 
 [project.scripts]
 local-compile-for-overleaf = "local_compile_for_overleaf.cli:main"
