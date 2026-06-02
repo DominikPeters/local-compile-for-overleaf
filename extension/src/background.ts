@@ -8,6 +8,7 @@ import type {
   RuntimeSyncRequest,
 } from './types'
 import { shapeCompileResponse } from './compile-response'
+import { extensionOrigin, extensionRuntime } from './runtime'
 
 const HOST_NAME = 'de.dominik_peters.local_compile_for_overleaf'
 const LOG_PREFIX = '[LCFO]'
@@ -20,7 +21,7 @@ let nativeConnectAttempt = 0
 let lastNativeError: string | null = null
 let idleShutdownTimer: number | null = null
 
-chrome.runtime.onMessage.addListener((message: RuntimeRequest, _sender, sendResponse) => {
+extensionRuntime.onMessage.addListener((message: RuntimeRequest, _sender, sendResponse) => {
   console.info(LOG_PREFIX, 'runtime request', summarizeRuntimeRequest(message))
   cancelIdleShutdown()
   handleRuntimeMessage(message).then(
@@ -177,7 +178,10 @@ async function connectHost(): Promise<NativeHelloResponse> {
   nativeConnectAttempt += 1
   console.info(LOG_PREFIX, 'connecting native host', nativeDebugState())
   if (!nativeClient) nativeClient = new NativeClient(HOST_NAME)
-  return (await nativeClient.request({ type: 'hello' })) as NativeHelloResponse
+  return (await nativeClient.request({
+    type: 'hello',
+    extensionOrigin: extensionOrigin(),
+  })) as NativeHelloResponse
 }
 
 function cancelIdleShutdown() {
@@ -291,7 +295,8 @@ function summarizeRuntimeRequest(message: RuntimeRequest) {
 function nativeDebugState() {
   return {
     debugBuild: DEBUG_BUILD,
-    extensionId: chrome.runtime.id,
+    extensionId: extensionRuntime.id,
+    extensionOrigin: extensionOrigin(),
     hostName: HOST_NAME,
     nativeConnectAttempt,
     lastNativeError,
@@ -315,7 +320,7 @@ class NativeClient {
   >()
 
   constructor(hostName: string) {
-    this.port = chrome.runtime.connectNative(hostName)
+    this.port = extensionRuntime.connectNative(hostName)
     this.port.onMessage.addListener(message => this.handleMessage(message))
     this.port.onDisconnect.addListener(() => this.handleDisconnect())
   }
@@ -346,7 +351,7 @@ class NativeClient {
   }
 
   private handleDisconnect() {
-    lastNativeError = chrome.runtime.lastError?.message || 'Native host disconnected'
+    lastNativeError = extensionRuntime.lastError?.message || 'Native host disconnected'
     const error = new Error(lastNativeError)
     console.error(LOG_PREFIX, 'native host disconnected', error)
     for (const pending of this.pending.values()) {

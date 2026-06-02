@@ -3,6 +3,8 @@ import {
   type PageBridgeResponse,
   type RuntimeRequest,
 } from './types'
+import { extensionOrigin, extensionRuntime } from './runtime'
+import { ProjectSnapshotLoader } from './project-snapshot'
 
 const BYPASS_NEXT_COMPILE = 'LCFO_BYPASS_NEXT_COMPILE'
 const EXTENSION_RESPONSE = 'LCFO_EXTENSION_RESPONSE'
@@ -10,7 +12,6 @@ const PAGE_REQUEST = 'LCFO_PAGE_REQUEST'
 const LOG_PREFIX = '[LCFO]'
 const INSTALL_COMMAND =
   'python3 -m pip install --user --upgrade local-compile-for-overleaf && python3 -m local_compile_for_overleaf'
-import { ProjectSnapshotLoader } from './project-snapshot'
 
 const snapshotLoaders = new Map<string, ProjectSnapshotLoader>()
 let hostPanelOpen = false
@@ -28,7 +29,7 @@ checkHostStatus({ showPanelOnMissing: true }).catch(error => {
 
 function injectPageShim() {
   const script = document.createElement('script')
-  script.src = chrome.runtime.getURL('page-shim.js')
+  script.src = extensionRuntime.getURL('page-shim.js')
   script.async = false
   script.onload = () => script.remove()
   ;(document.documentElement || document.head).appendChild(script)
@@ -91,7 +92,7 @@ async function handlePageRequest(data: PageBridgeRequest) {
     }
   }
 
-  const response = await chrome.runtime.sendMessage(runtimeRequest)
+  const response = await extensionRuntime.sendMessage(runtimeRequest)
   if (response == null) {
     throw new Error('Extension background returned no response')
   }
@@ -267,7 +268,7 @@ function ensureHostInstallUi() {
   otherOptions.hidden = true
   otherOptions.innerHTML = [
     '<div>For this unpacked development extension:</div>',
-    `<code>python3 -m local_compile_for_overleaf install --browser chrome --extension-id ${escapeHtml(chrome.runtime.id)}</code>`,
+    `<code>${escapeHtml(devInstallCommand())}</code>`,
   ].join('')
 
   panel.append(titleRow, description, commandRow, actions, otherOptions)
@@ -301,7 +302,7 @@ async function checkHostStatus({ showPanelOnMissing }: { showPanelOnMissing: boo
   hostCheckInFlight = true
   setRetryBusy(true)
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'host-status' })
+    const response = await extensionRuntime.sendMessage({ type: 'host-status' })
     const connected = Boolean(response?.connected)
     hostMissing = !connected
     hostPanelOpen = !connected && showPanelOnMissing
@@ -566,4 +567,11 @@ function escapeHtml(value: string): string {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
+}
+
+function devInstallCommand(): string {
+  if (extensionOrigin().startsWith('moz-extension://')) {
+    return 'python3 -m local_compile_for_overleaf install --browser firefox'
+  }
+  return `python3 -m local_compile_for_overleaf install --browser chrome --extension-id ${extensionRuntime.id}`
 }

@@ -1,6 +1,7 @@
 /overleaf-ce-source
 node_modules/
 extension/dist/
+extension/dist-firefox/
 .pytest_cache/
 __pycache__/
 *.pyc

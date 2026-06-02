@@ -32,3 +32,17 @@ def test_native_allowed_origins_reads_chrome_extension_argv(
         "chrome-extension://abcdefghijklmnop",
         "moz-extension://12345678-1234-1234-1234-123456789abc",
     }
+
+
+def test_native_allowed_origins_reads_hello_extension_origin(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["local-compile-for-overleaf"])
+
+    assert native_allowed_origins(
+        {"extensionOrigin": "moz-extension://12345678-1234-1234-1234-123456789abc/"}
+    ) == {"moz-extension://12345678-1234-1234-1234-123456789abc"}
+
+
+def test_native_allowed_origins_rejects_non_extension_hello_origin(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["local-compile-for-overleaf"])
+
+    assert native_allowed_origins({"extensionOrigin": "https://www.overleaf.com"}) == set()

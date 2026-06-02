@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from local_compile_for_overleaf import cli
-from local_compile_for_overleaf.install import InstallReport
+from local_compile_for_overleaf.install import FIREFOX_EXTENSION_ID, InstallReport
 
 
 def test_chrome_origin_argument_starts_native_host(monkeypatch) -> None:
@@ -27,6 +27,24 @@ def test_firefox_origin_argument_starts_native_host(monkeypatch) -> None:
     monkeypatch.setattr(cli, "run_native_host", fake_run_native_host)
 
     assert cli.main(["moz-extension://1234/"]) == 0
+    assert called
+
+
+def test_firefox_manifest_argv_starts_native_host(monkeypatch) -> None:
+    called = False
+
+    def fake_run_native_host() -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(cli, "run_native_host", fake_run_native_host)
+
+    assert (
+        cli.main(
+            ["/path/to/de.dominik_peters.local_compile_for_overleaf.json", FIREFOX_EXTENSION_ID]
+        )
+        == 0
+    )
     assert called
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .install import format_report, install_chrome_host, install_manifests
+from .install import FIREFOX_EXTENSION_ID, format_report, install_chrome_host, install_manifests
 from .native import run_native_host
 
 
@@ -84,5 +84,6 @@ def is_native_messaging_invocation(argv: list[str]) -> bool:
         and (
             argv[0].startswith("chrome-extension://")
             or argv[0].startswith("moz-extension://")
+            or (len(argv) >= 2 and argv[1] == FIREFOX_EXTENSION_ID)
         )
     )

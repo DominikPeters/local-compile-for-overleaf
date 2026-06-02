@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "npm run build:chrome",
+    "build:chrome": "vite build",
+    "build:firefox": "vite build --mode firefox",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

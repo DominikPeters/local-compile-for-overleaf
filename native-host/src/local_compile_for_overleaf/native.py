@@ -10,7 +10,7 @@ import traceback
 from typing import Any, BinaryIO
 
 from . import __version__
-from .server import LocalCompileServer
+from .server import LocalCompileServer, normalize_origin
 
 
 def run_native_host(
@@ -46,7 +46,7 @@ def run_native_host(
             log_event("native host message", {"id": message_id, "type": message_type})
             if message_type == "hello":
                 if server is None:
-                    server = LocalCompileServer(allowed_origins=native_allowed_origins())
+                    server = LocalCompileServer(allowed_origins=native_allowed_origins(message))
                     server.start()
                     log_event(
                         "local server started",
@@ -56,6 +56,8 @@ def run_native_host(
                             "capabilities": server.capabilities(),
                         },
                     )
+                else:
+                    server.allowed_api_origins.update(native_allowed_origins(message))
                 response = {
                     "id": message_id,
                     "ok": True,
@@ -113,12 +115,19 @@ def write_message(stream: BinaryIO, message: dict[str, Any]) -> None:
     stream.flush()
 
 
-def native_allowed_origins() -> set[str]:
-    return {
+def native_allowed_origins(message: dict[str, Any] | None = None) -> set[str]:
+    origins = {
         arg.rstrip("/")
         for arg in sys.argv[1:]
         if arg.startswith(("chrome-extension://", "moz-extension://"))
     }
+    if message:
+        origin = message.get("extensionOrigin")
+        if isinstance(origin, str) and origin.startswith(
+            ("chrome-extension://", "moz-extension://")
+        ):
+            origins.add(origin.rstrip("/"))
+    return {normalize_origin(origin) for origin in origins}
 
 
 def log_event(message: str, fields: dict[str, Any] | None = None) -> None:
