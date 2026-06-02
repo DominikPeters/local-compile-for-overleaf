@@ -65,10 +65,14 @@ def run_native_host(
                     "capabilities": server.capabilities(),
                 }
             elif message_type == "shutdown":
-                if server:
+                if server and server.active_compile_count() == 0:
                     server.stop()
                     server = None
-                response = {"id": message_id, "ok": True}
+                    response = {"id": message_id, "ok": True, "stopped": True}
+                elif server:
+                    response = {"id": message_id, "ok": True, "stopped": False}
+                else:
+                    response = {"id": message_id, "ok": True, "stopped": False}
             else:
                 response = {
                     "id": message_id,

@@ -1,20 +1,34 @@
 from __future__ import annotations
 
 import json
+import signal
+import subprocess
+import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
 
+from overleaf_local_compile import server as server_module
 from overleaf_local_compile.server import (
     DRAFT_PREFIX,
     LocalCompileServer,
+    build_latexmk_command,
     decode_process_output,
     ensure_output_synctex,
     inject_draft_mode,
     normalize_synctex_file,
+    output_tex_wrapper_path,
     parse_synctex_edit_output,
     parse_synctex_view_output,
+    prune_old_builds,
+    prune_old_projects,
+    restore_temporary_files,
     safe_join,
+    should_publish_output_file,
+    terminate_process_tree,
+    uses_output_tex_compat_package,
 )
 
 
@@ -39,7 +53,9 @@ def test_output_file_uses_tokenized_viewer_path(tmp_path: Path) -> None:
     output = server.output_file("project", "build", "output.pdf", pdf)
 
     assert output["path"] == "output.pdf"
-    assert output["url"].startswith("/ollc/test-token/project/project/build/build/output/")
+    assert not output["url"].startswith("/ollc/test-token/")
+    token = output["url"].split("/")[2]
+    assert server.output_token_matches(token, "project", "build")
     assert output["size"] == len(b"%PDF-1.7\n")
     assert output["ranges"] == []
 
@@ -64,6 +80,25 @@ def test_write_snapshot_preserves_surrogateescaped_text(tmp_path: Path) -> None:
     )
 
     assert (server.source_dir("project") / "main.tex").read_bytes() == b"before \xb9 after"
+
+
+def test_write_snapshot_materializes_binary_resources_from_base64(tmp_path: Path) -> None:
+    server = LocalCompileServer.__new__(LocalCompileServer)
+    server.cache_root = tmp_path
+
+    server.write_snapshot(
+        "project",
+        {
+            "full": True,
+            "files": [
+                {"path": "figures/plot.png", "encoding": "base64", "content": "iVBORw=="},
+            ],
+            "deletedFiles": [],
+        },
+    )
+
+    assert (server.source_dir("project") / "figures/plot.png").read_bytes() == b"\x89PNG"
+    assert (server.work_dir("project") / "figures/plot.png").read_bytes() == b"\x89PNG"
 
 
 def test_write_snapshot_patches_existing_source_tree(tmp_path: Path) -> None:
@@ -137,6 +172,87 @@ def test_inject_draft_mode_returns_original_content(tmp_path: Path) -> None:
     assert root.read_bytes() == DRAFT_PREFIX + b"\\documentclass{article}"
 
 
+def test_output_tex_wrapper_is_only_used_for_tikz_or_pstool_roots(tmp_path: Path) -> None:
+    root = tmp_path / "main.tex"
+    root.write_text("\\documentclass{article}", encoding="utf-8")
+
+    assert output_tex_wrapper_path(tmp_path, root, set()) is None
+
+    root.write_text("\\documentclass{article}\n\\tikzexternalize", encoding="utf-8")
+    assert output_tex_wrapper_path(tmp_path, root, set()) == tmp_path / "output.tex"
+
+    root.write_text("\\documentclass{article}\n\\usepackage{pstool}", encoding="utf-8")
+    assert output_tex_wrapper_path(tmp_path, root, set()) == tmp_path / "output.tex"
+
+
+def test_output_tex_wrapper_respects_project_output_tex_resource(tmp_path: Path) -> None:
+    root = tmp_path / "main.tex"
+    root.write_text("\\tikzexternalize", encoding="utf-8")
+
+    assert output_tex_wrapper_path(tmp_path, root, {"output.tex"}) is None
+
+
+def test_uses_output_tex_compat_package_reads_only_root_prefix(tmp_path: Path) -> None:
+    root = tmp_path / "main.tex"
+    root.write_text("a" * 70000 + "\\tikzexternalize", encoding="utf-8")
+
+    assert not uses_output_tex_compat_package(root)
+
+
+def test_restore_temporary_files_restores_or_deletes_files(tmp_path: Path) -> None:
+    existing = tmp_path / "existing.tex"
+    generated = tmp_path / "generated.tex"
+    existing.write_bytes(b"old")
+    generated.write_bytes(b"temporary")
+
+    restore_temporary_files({existing: b"restored", generated: None})
+
+    assert existing.read_bytes() == b"restored"
+    assert not generated.exists()
+
+
+def test_build_latexmk_command_maps_supported_compilers(tmp_path: Path) -> None:
+    root = tmp_path / "main.tex"
+    expected = {
+        "pdflatex": "-pdf",
+        "xelatex": "-xelatex",
+        "lualatex": "-lualatex",
+        "latex": "-pdfdvi",
+    }
+
+    for compiler, flag in expected.items():
+        command = build_latexmk_command(
+            "/usr/bin/latexmk",
+            tmp_path,
+            root,
+            {"compiler": compiler},
+        )
+        assert command[0] == "/usr/bin/latexmk"
+        assert flag in command
+        assert command[-1] == str(root)
+
+
+def test_build_latexmk_command_rejects_unknown_compiler(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unsupported compiler"):
+        build_latexmk_command(
+            "latexmk",
+            tmp_path,
+            tmp_path / "main.tex",
+            {"compiler": "context"},
+        )
+
+
+def test_build_latexmk_command_maps_shell_escape_for_externalization(tmp_path: Path) -> None:
+    command = build_latexmk_command(
+        "latexmk",
+        tmp_path,
+        tmp_path / "main.tex",
+        {"compiler": "pdflatex", "enableShellEscape": True},
+    )
+
+    assert "-shell-escape" in command
+
+
 def test_clear_output_removes_builds_but_keeps_source(tmp_path: Path) -> None:
     server = LocalCompileServer.__new__(LocalCompileServer)
     server.cache_root = tmp_path
@@ -160,6 +276,31 @@ def test_clear_output_removes_builds_but_keeps_source(tmp_path: Path) -> None:
     assert (server.work_dir("project") / "main.tex").exists()
     assert not (server.work_dir("project") / "main.aux").exists()
     assert not (server.project_dir("project") / "builds").exists()
+
+
+def test_generated_final_output_is_published_even_if_source_has_same_name() -> None:
+    assert should_publish_output_file(Path("output.pdf"), {"output.pdf"})
+    assert should_publish_output_file(Path("output.log"), {"output.log"})
+
+
+def test_bibliography_index_glossary_and_tikz_outputs_are_published() -> None:
+    source_manifest = {"main.tex", "figures/source.pdf"}
+
+    for name in [
+        "output.bbl",
+        "output.blg",
+        "output.idx",
+        "output.ind",
+        "output.glo",
+        "output.gls",
+        "output.ist",
+        "output.fls",
+        "output.fdb_latexmk",
+        "tikz-cache/figure0.pdf",
+    ]:
+        assert should_publish_output_file(Path(name), source_manifest)
+
+    assert not should_publish_output_file(Path("figures/source.pdf"), source_manifest)
 
 
 def test_write_snapshot_incrementally_updates_work_without_deleting_aux(tmp_path: Path) -> None:
@@ -194,6 +335,68 @@ def test_write_snapshot_incrementally_updates_work_without_deleting_aux(tmp_path
     assert not (server.source_dir("project") / "old.tex").exists()
     assert not (server.work_dir("project") / "old.tex").exists()
     assert (server.work_dir("project") / "main.aux").read_text(encoding="utf-8") == "aux"
+
+
+def test_run_compile_process_rejects_overlapping_compiles(tmp_path: Path) -> None:
+    server = LocalCompileServer.__new__(LocalCompileServer)
+    server.process_lock = threading.Lock()
+    server.compile_processes = {"project": object()}
+
+    with pytest.raises(RuntimeError, match="already running"):
+        server.run_compile_process("project", ["latexmk"], tmp_path, timeout=1)
+
+
+def test_terminate_process_tree_escalates_to_sigkill(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+
+    class FakeProcess:
+        pid = 12345
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float) -> None:
+            raise subprocess.TimeoutExpired("fake", timeout)
+
+    monkeypatch.setattr(server_module.os, "name", "posix")
+    monkeypatch.setattr(server_module.os, "killpg", lambda _pid, sig: calls.append(sig))
+
+    terminate_process_tree(FakeProcess())  # type: ignore[arg-type]
+
+    assert calls == [signal.SIGTERM, signal.SIGKILL]
+
+
+def test_prune_old_builds_removes_only_oldest_builds(tmp_path: Path) -> None:
+    builds_dir = tmp_path / "builds"
+    builds_dir.mkdir()
+    for index in range(4):
+        build = builds_dir / f"build-{index}"
+        build.mkdir()
+        (build / "output.log").write_text(str(index), encoding="utf-8")
+        timestamp = 1_700_000_000 + index
+        server_module.os.utime(build, (timestamp, timestamp))
+
+    removed = prune_old_builds(tmp_path, keep=2)
+
+    assert removed == {"build-0", "build-1"}
+    assert sorted(path.name for path in builds_dir.iterdir()) == ["build-2", "build-3"]
+
+
+def test_prune_old_projects_keeps_active_projects(tmp_path: Path) -> None:
+    for index in range(4):
+        project = tmp_path / f"project-{index}"
+        project.mkdir()
+        timestamp = 1_700_000_000 + index
+        server_module.os.utime(project, (timestamp, timestamp))
+
+    removed = prune_old_projects(tmp_path, active_project_ids={"project-0"}, keep=2)
+
+    assert removed == {"project-1"}
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "project-0",
+        "project-2",
+        "project-3",
+    ]
 
 
 def test_ensure_output_synctex_copies_root_sidecar(tmp_path: Path) -> None:
@@ -251,3 +454,52 @@ SyncTeX result end
 
 def test_normalize_synctex_file_removes_relative_dot_prefix(tmp_path: Path) -> None:
     assert normalize_synctex_file("./main.tex", tmp_path) == "main.tex"
+
+
+def test_localhost_server_enforces_auth_rejects_methods_and_caps_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server_module, "MAX_JSON_BODY_BYTES", 2)
+    try:
+        server = LocalCompileServer()
+    except PermissionError as error:
+        pytest.skip(f"local socket binding blocked by sandbox: {error}")
+    server.start()
+    try:
+        with pytest.raises(urllib.error.HTTPError) as unauthorized:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{server.port}/v1/projects/project/snapshot",
+                data=b"{}",
+            )
+        assert unauthorized.value.code == 401
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.port}/v1/projects/project/snapshot",
+            data=b"{}",
+            method="PUT",
+        )
+        with pytest.raises(urllib.error.HTTPError) as method_not_allowed:
+            urllib.request.urlopen(request)
+        assert method_not_allowed.value.code == 405
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.port}/v1/projects/project/snapshot",
+            data=b'{"too":"large"}',
+            headers={"Authorization": f"Bearer {server.token}"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as too_large:
+            urllib.request.urlopen(request)
+        assert too_large.value.code == 413
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.port}/v1/projects/project/unknown",
+            data=b"{}",
+            headers={"Authorization": f"Bearer {server.token}"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as not_found:
+            urllib.request.urlopen(request)
+        assert not_found.value.code == 404
+    finally:
+        server.stop()

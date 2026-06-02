@@ -29,6 +29,17 @@ COMPILER_FLAGS = {
     "pdflatex": "-pdf",
     "xelatex": "-xelatex",
 }
+MAX_JSON_BODY_BYTES = int(os.getenv("OLLC_MAX_JSON_BODY_BYTES", str(128 * 1024 * 1024)))
+MAX_PROJECTS = int(os.getenv("OLLC_MAX_PROJECTS", "50"))
+OUTPUT_TOKEN_TTL_SECONDS = int(os.getenv("OLLC_OUTPUT_TOKEN_TTL_SECONDS", str(60 * 60)))
+STOP_GRACE_SECONDS = float(os.getenv("OLLC_STOP_GRACE_SECONDS", "2"))
+GENERATED_FINAL_OUTPUTS = {
+    "output.pdf",
+    "output.log",
+    "output.synctex.gz",
+    "output.stdout",
+    "output.stderr",
+}
 
 
 class LocalCompileServer:
@@ -40,6 +51,9 @@ class LocalCompileServer:
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.process_lock = threading.Lock()
         self.compile_processes: dict[str, subprocess.Popen[bytes]] = {}
+        self.output_token_lock = threading.Lock()
+        self.output_tokens: dict[str, tuple[str, str, float]] = {}
+        self.build_tokens: dict[tuple[str, str], str] = {}
 
     def start(self) -> None:
         self.cache_root.mkdir(parents=True, exist_ok=True)
@@ -66,6 +80,12 @@ class LocalCompileServer:
                 self._cors()
                 self.end_headers()
 
+            def do_PUT(self) -> None:  # noqa: N802
+                self._method_not_allowed()
+
+            def do_PATCH(self) -> None:  # noqa: N802
+                self._method_not_allowed()
+
             def do_POST(self) -> None:  # noqa: N802
                 try:
                     if not self._authorized_api():
@@ -88,6 +108,8 @@ class LocalCompileServer:
                         self._json(outer.stop_compile(project_id))
                     else:
                         self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+                except HTTPError as error:
+                    self._json({"error": error.message}, error.status)
                 except Exception as error:  # noqa: BLE001
                     outer.log_server_error("POST", self.path, error)
                     self._json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -105,6 +127,8 @@ class LocalCompileServer:
                         self._json({"ok": True})
                     else:
                         self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+                except HTTPError as error:
+                    self._json({"error": error.message}, error.status)
                 except Exception as error:  # noqa: BLE001
                     outer.log_server_error("DELETE", self.path, error)
                     self._json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -116,7 +140,7 @@ class LocalCompileServer:
                     output = self._match_output_route(route)
                     if output:
                         token, project_id, build_id, file_name = output
-                        if token != outer.token:
+                        if not outer.output_token_matches(token, project_id, build_id):
                             self._json({"error": "Unauthorized"}, HTTPStatus.UNAUTHORIZED)
                             return
                         outer.serve_output_file(self, project_id, build_id, file_name)
@@ -137,6 +161,8 @@ class LocalCompileServer:
                         )
                     else:
                         self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+                except HTTPError as error:
+                    self._json({"error": error.message}, error.status)
                 except Exception as error:  # noqa: BLE001
                     outer.log_server_error("GET", self.path, error)
                     self._json({"error": str(error)}, HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -153,10 +179,18 @@ class LocalCompileServer:
                 return tuple(unquote(match.group(i)) for i in range(1, 5))  # type: ignore[return-value]
 
             def _authorized_api(self) -> bool:
-                return self.headers.get("Authorization") == f"Bearer {outer.token}"
+                return secrets.compare_digest(
+                    self.headers.get("Authorization", ""),
+                    f"Bearer {outer.token}",
+                )
 
             def _read_json(self) -> dict[str, Any]:
                 length = int(self.headers.get("Content-Length", "0"))
+                if length > MAX_JSON_BODY_BYTES:
+                    raise HTTPError(
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                        f"JSON request body exceeds {MAX_JSON_BODY_BYTES} bytes",
+                    )
                 raw = self.rfile.read(length)
                 try:
                     text = raw.decode("utf-8")
@@ -178,6 +212,9 @@ class LocalCompileServer:
                 self.send_header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
                 self.send_header("Access-Control-Allow-Headers", "Authorization,Content-Type,Range")
                 self.send_header("Access-Control-Expose-Headers", "Accept-Ranges,Content-Length,Content-Range")
+
+            def _method_not_allowed(self) -> None:
+                self._json({"error": "Method not allowed"}, HTTPStatus.METHOD_NOT_ALLOWED)
 
         return Handler
 
@@ -243,7 +280,8 @@ class LocalCompileServer:
     def compile(self, project_id: str, options: dict[str, Any]) -> dict[str, Any]:
         build_id = f"{int(time.time() * 1000):x}-{secrets.token_hex(8)}"
         work_dir = self.work_dir(project_id)
-        sync_work_from_source(self.source_dir(project_id), work_dir, read_source_manifest(self.project_dir(project_id)))
+        source_manifest = read_source_manifest(self.project_dir(project_id))
+        sync_work_from_source(self.source_dir(project_id), work_dir, source_manifest)
         build_dir = self.build_dir(project_id, build_id)
         build_dir.mkdir(parents=True, exist_ok=True)
 
@@ -251,23 +289,7 @@ class LocalCompileServer:
         root_path = safe_join(work_dir, root)
         latexmk_path = find_executable("latexmk")
         compiler = str(options.get("compiler") or "pdflatex")
-        compiler_flag = COMPILER_FLAGS.get(compiler)
-        if compiler_flag is None:
-            raise ValueError(f"Unsupported compiler: {compiler}")
-        command = [
-            latexmk_path or "latexmk",
-            "-cd",
-            "-jobname=output",
-            f"-auxdir={str(work_dir)}",
-            f"-outdir={str(work_dir)}",
-            "-synctex=1",
-            "-interaction=batchmode",
-            "-time",
-            "-halt-on-error" if options.get("stopOnFirstError") else "-f",
-            "-file-line-error",
-            compiler_flag,
-            str(root_path),
-        ]
+        command = build_latexmk_command(latexmk_path or "latexmk", work_dir, root_path, options)
         diagnostics = {
             "projectId": project_id,
             "buildId": build_id,
@@ -287,13 +309,19 @@ class LocalCompileServer:
 
         if latexmk_path is None:
             write_diagnostics_log(build_dir, diagnostics, "latexmk was not found.")
-            prune_old_builds(self.project_dir(project_id))
+            self.prune_cache(project_id)
             return self.compile_response(project_id, build_id, "failure")
 
-        restore_root_content: bytes | None = None
+        restore_files: dict[Path, bytes | None] = {}
         try:
             if options.get("draft"):
-                restore_root_content = inject_draft_mode(root_path)
+                restore_files[root_path] = inject_draft_mode(root_path)
+            wrapper_path = output_tex_wrapper_path(work_dir, root_path, source_manifest)
+            if wrapper_path is not None:
+                restore_files[wrapper_path] = (
+                    wrapper_path.read_bytes() if wrapper_path.exists() else None
+                )
+                wrapper_path.write_bytes(root_path.read_bytes())
             remove_previous_final_outputs(work_dir)
             completed = self.run_compile_process(project_id, command, work_dir, timeout=600)
             diagnostics.update(
@@ -314,7 +342,7 @@ class LocalCompileServer:
                 }
             )
             write_diagnostics_log(build_dir, diagnostics, "latexmk timed out after 600 seconds.")
-            prune_old_builds(self.project_dir(project_id))
+            self.prune_cache(project_id)
             return self.compile_response(project_id, build_id, "timedout")
         except CompileTerminated:
             diagnostics.update(
@@ -326,18 +354,17 @@ class LocalCompileServer:
                 }
             )
             write_diagnostics_log(build_dir, diagnostics, "Compile terminated by user.")
-            prune_old_builds(self.project_dir(project_id))
+            self.prune_cache(project_id)
             return self.compile_response(project_id, build_id, "terminated")
         finally:
-            if restore_root_content is not None:
-                root_path.write_bytes(restore_root_content)
+            restore_temporary_files(restore_files)
 
-        publish_build_outputs(work_dir, build_dir, read_source_manifest(self.project_dir(project_id)))
+        publish_build_outputs(work_dir, build_dir, source_manifest)
         status = "success" if (build_dir / "output.pdf").exists() else "failure"
         if status == "success":
             ensure_output_synctex(build_dir, root)
         ensure_output_log(build_dir, root, diagnostics, status)
-        prune_old_builds(self.project_dir(project_id))
+        self.prune_cache(project_id)
         return self.compile_response(project_id, build_id, status)
 
     def run_compile_process(
@@ -378,6 +405,7 @@ class LocalCompileServer:
 
     def compile_response(self, project_id: str, build_id: str, status: str) -> dict[str, Any]:
         build_dir = self.build_dir(project_id, build_id)
+        self.output_token(project_id, build_id)
         files = []
         for path in sorted(p for p in build_dir.rglob("*") if p.is_file()):
             rel = path.relative_to(build_dir).as_posix()
@@ -392,7 +420,7 @@ class LocalCompileServer:
         }
 
     def output_file(self, project_id: str, build_id: str, rel: str, path: Path) -> dict[str, Any]:
-        url = f"/ollc/{quote(self.token)}/project/{quote(project_id)}/build/{quote(build_id)}/output/{quote(rel)}"
+        url = f"/ollc/{quote(self.output_token(project_id, build_id))}/project/{quote(project_id)}/build/{quote(build_id)}/output/{quote(rel)}"
         result: dict[str, Any] = {
             "path": rel,
             "url": url,
@@ -435,6 +463,74 @@ class LocalCompileServer:
         handler.send_header("Content-Length", str(len(body)))
         handler.end_headers()
         handler.wfile.write(body)
+
+    def output_token(self, project_id: str, build_id: str) -> str:
+        if not hasattr(self, "output_token_lock"):
+            self.output_token_lock = threading.Lock()
+            self.output_tokens = {}
+            self.build_tokens = {}
+        key = (project_id, build_id)
+        now = time.time()
+        with self.output_token_lock:
+            token = self.build_tokens.get(key)
+            if token:
+                existing = self.output_tokens.get(token)
+                if existing and existing[2] > now:
+                    return token
+            token = secrets.token_urlsafe(16)
+            expires_at = now + OUTPUT_TOKEN_TTL_SECONDS
+            self.build_tokens[key] = token
+            self.output_tokens[token] = (project_id, build_id, expires_at)
+            return token
+
+    def output_token_matches(self, token: str, project_id: str, build_id: str) -> bool:
+        if not hasattr(self, "output_token_lock"):
+            return secrets.compare_digest(token, getattr(self, "token", ""))
+        now = time.time()
+        with self.output_token_lock:
+            self.expire_output_tokens_locked(now)
+            record = self.output_tokens.get(token)
+            if not record:
+                return False
+            expected_project_id, expected_build_id, expires_at = record
+            return (
+                expires_at > now
+                and secrets.compare_digest(expected_project_id, project_id)
+                and secrets.compare_digest(expected_build_id, build_id)
+            )
+
+    def expire_output_tokens_locked(self, now: float | None = None) -> None:
+        now = time.time() if now is None else now
+        expired = [
+            token
+            for token, (_, _, expires_at) in self.output_tokens.items()
+            if expires_at <= now
+        ]
+        for token in expired:
+            project_id, build_id, _ = self.output_tokens.pop(token)
+            self.build_tokens.pop((project_id, build_id), None)
+
+    def prune_cache(self, project_id: str) -> None:
+        pruned_builds = prune_old_builds(self.project_dir(project_id))
+        self.drop_output_tokens(project_id, pruned_builds)
+        prune_old_projects(self.cache_root, self.active_project_ids(), keep=MAX_PROJECTS)
+
+    def drop_output_tokens(self, project_id: str, build_ids: set[str]) -> None:
+        if not build_ids or not hasattr(self, "output_token_lock"):
+            return
+        with self.output_token_lock:
+            for build_id in build_ids:
+                token = self.build_tokens.pop((project_id, build_id), None)
+                if token:
+                    self.output_tokens.pop(token, None)
+
+    def active_project_ids(self) -> set[str]:
+        with self.process_lock:
+            return set(self.compile_processes)
+
+    def active_compile_count(self) -> int:
+        with self.process_lock:
+            return len(self.compile_processes)
 
     def synctex(
         self, project_id: str, build_id: str, direction: str, query: dict[str, list[str]]
@@ -522,6 +618,13 @@ class CompileTerminated(Exception):
     pass
 
 
+class HTTPError(Exception):
+    def __init__(self, status: HTTPStatus, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
 def cache_root() -> Path:
     if os.name == "posix" and Path.home().joinpath("Library").exists():
         return Path.home() / "Library/Caches/overleaf-local-compile"
@@ -591,6 +694,35 @@ def sync_work_from_source(source_dir: Path, work_dir: Path, manifest: set[str]) 
             target.unlink()
 
 
+def build_latexmk_command(
+    latexmk_path: str,
+    work_dir: Path,
+    root_path: Path,
+    options: dict[str, Any],
+) -> list[str]:
+    compiler = str(options.get("compiler") or "pdflatex")
+    compiler_flag = COMPILER_FLAGS.get(compiler)
+    if compiler_flag is None:
+        raise ValueError(f"Unsupported compiler: {compiler}")
+
+    command = [
+        latexmk_path,
+        "-cd",
+        "-jobname=output",
+        f"-auxdir={str(work_dir)}",
+        f"-outdir={str(work_dir)}",
+        "-synctex=1",
+        "-interaction=batchmode",
+        "-time",
+        "-halt-on-error" if options.get("stopOnFirstError") else "-f",
+        "-file-line-error",
+    ]
+    if options.get("enableShellEscape") or options.get("shellEscape"):
+        command.append("-shell-escape")
+    command.extend([compiler_flag, str(root_path)])
+    return command
+
+
 def publish_build_outputs(work_dir: Path, build_dir: Path, source_manifest: set[str]) -> None:
     build_dir.mkdir(parents=True, exist_ok=True)
     for source in work_dir.rglob("*"):
@@ -604,13 +736,7 @@ def publish_build_outputs(work_dir: Path, build_dir: Path, source_manifest: set[
 
 
 def remove_previous_final_outputs(work_dir: Path) -> None:
-    for name in [
-        "output.pdf",
-        "output.log",
-        "output.synctex.gz",
-        "output.stdout",
-        "output.stderr",
-    ]:
+    for name in GENERATED_FINAL_OUTPUTS:
         path = work_dir / name
         if path.exists():
             path.unlink()
@@ -619,6 +745,8 @@ def remove_previous_final_outputs(work_dir: Path) -> None:
 def should_publish_output_file(path: Path, source_manifest: set[str]) -> bool:
     if path.parts and path.parts[0] == ".ollc":
         return False
+    if path.as_posix() in GENERATED_FINAL_OUTPUTS:
+        return True
     if path.as_posix() in source_manifest:
         return False
     suffixes = "".join(path.suffixes).lower()
@@ -633,6 +761,18 @@ def terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
             os.killpg(process.pid, signal.SIGTERM)
         else:
             process.terminate()
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=STOP_GRACE_SECONDS)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
     except ProcessLookupError:
         return
 
@@ -682,6 +822,33 @@ def inject_draft_mode(root_path: Path) -> bytes:
     return content
 
 
+def output_tex_wrapper_path(
+    work_dir: Path, root_path: Path, source_manifest: set[str]
+) -> Path | None:
+    if "output.tex" in source_manifest:
+        return None
+    if not uses_output_tex_compat_package(root_path):
+        return None
+    return work_dir / "output.tex"
+
+
+def uses_output_tex_compat_package(root_path: Path) -> bool:
+    try:
+        with root_path.open("r", encoding="utf-8", errors="replace") as root:
+            content = root.read(65536)
+    except OSError:
+        return False
+    return "\\tikzexternalize" in content or "{pstool}" in content
+
+
+def restore_temporary_files(files: dict[Path, bytes | None]) -> None:
+    for path, content in files.items():
+        if content is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(content)
+
+
 def safe_segment(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
         return hashlib.sha1(value.encode("utf-8")).hexdigest()
@@ -699,13 +866,32 @@ def safe_join(base: Path, posix_path: str) -> Path:
     return target
 
 
-def prune_old_builds(project_dir: Path, keep: int = 5) -> None:
+def prune_old_builds(project_dir: Path, keep: int = 5) -> set[str]:
     builds_dir = project_dir / "builds"
     if not builds_dir.exists():
-        return
+        return set()
     builds = sorted((p for p in builds_dir.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime, reverse=True)
+    removed: set[str] = set()
     for old in builds[keep:]:
+        removed.add(old.name)
         shutil.rmtree(old, ignore_errors=True)
+    return removed
+
+
+def prune_old_projects(cache_root: Path, active_project_ids: set[str], keep: int = 50) -> set[str]:
+    if keep <= 0 or not cache_root.exists():
+        return set()
+    projects = [
+        path
+        for path in cache_root.iterdir()
+        if path.is_dir() and path.name not in active_project_ids
+    ]
+    projects.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    removed: set[str] = set()
+    for old in projects[keep:]:
+        removed.add(old.name)
+        shutil.rmtree(old, ignore_errors=True)
+    return removed
 
 
 def output_type(path: str) -> str:

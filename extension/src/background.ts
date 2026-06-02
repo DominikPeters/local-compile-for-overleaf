@@ -11,25 +11,35 @@ import { shapeCompileResponse } from './compile-response'
 const HOST_NAME = 'com.overleaf_local_compile.host'
 const LOG_PREFIX = '[OLLC]'
 const DEBUG_BUILD = 'native-debug-2026-06-01T00:05Z'
+const IDLE_SHUTDOWN_MS = 5 * 60 * 1000
 
 let nativeClient: NativeClient | null = null
 let hello: NativeHelloResponse | null = null
 let nativeConnectAttempt = 0
 let lastNativeError: string | null = null
+let idleShutdownTimer: number | null = null
 
 chrome.runtime.onMessage.addListener((message: RuntimeRequest, _sender, sendResponse) => {
   console.info(LOG_PREFIX, 'runtime request', summarizeRuntimeRequest(message))
-  handleRuntimeMessage(message).then(sendResponse, error => {
-    console.error(LOG_PREFIX, 'runtime request failed', error)
-    sendResponse({
-      status: 'failure',
-      outputFiles: [],
-      validationProblems: null,
-      pdfCachingMinChunkSize: 0,
-      error: error instanceof Error ? error.message : String(error),
-      ollcDebug: nativeDebugState(),
-    })
-  })
+  cancelIdleShutdown()
+  handleRuntimeMessage(message).then(
+    response => {
+      scheduleIdleShutdown()
+      sendResponse(response)
+    },
+    error => {
+      scheduleIdleShutdown()
+      console.error(LOG_PREFIX, 'runtime request failed', error)
+      sendResponse({
+        status: 'failure',
+        outputFiles: [],
+        validationProblems: null,
+        pdfCachingMinChunkSize: 0,
+        error: error instanceof Error ? error.message : String(error),
+        ollcDebug: nativeDebugState(),
+      })
+    }
+  )
   return true
 })
 
@@ -148,6 +158,40 @@ async function connectHost(): Promise<NativeHelloResponse> {
   console.info(LOG_PREFIX, 'connecting native host', nativeDebugState())
   if (!nativeClient) nativeClient = new NativeClient(HOST_NAME)
   return (await nativeClient.request({ type: 'hello' })) as NativeHelloResponse
+}
+
+function cancelIdleShutdown() {
+  if (idleShutdownTimer == null) return
+  clearTimeout(idleShutdownTimer)
+  idleShutdownTimer = null
+}
+
+function scheduleIdleShutdown() {
+  cancelIdleShutdown()
+  idleShutdownTimer = setTimeout(() => {
+    idleShutdownTimer = null
+    shutdownIdleHost().catch(error => {
+      console.warn(LOG_PREFIX, 'idle native host shutdown failed', error)
+    })
+  }, IDLE_SHUTDOWN_MS) as unknown as number
+}
+
+async function shutdownIdleHost() {
+  if (!nativeClient || !hello) return
+  const client = nativeClient
+  try {
+    const response = (await client.request({ type: 'shutdown' })) as { stopped?: boolean }
+    console.info(LOG_PREFIX, 'idle native host shutdown response', response)
+    if (response.stopped !== false) {
+      nativeClient = null
+      hello = null
+    }
+  } catch (error) {
+    lastNativeError = errorMessage(error)
+    nativeClient = null
+    hello = null
+    throw error
+  }
 }
 
 async function postJSON(session: NativeHelloResponse, path: string, body: unknown) {
