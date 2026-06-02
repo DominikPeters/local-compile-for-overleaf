@@ -3,8 +3,9 @@ import {
   type PageBridgeResponse,
   type RuntimeRequest,
 } from './types'
-import { extensionOrigin, extensionRuntime } from './runtime'
 import { ProjectSnapshotLoader } from './project-snapshot'
+
+const extensionRuntime = getExtensionRuntime()
 
 const BYPASS_NEXT_COMPILE = 'LCFO_BYPASS_NEXT_COMPILE'
 const EXTENSION_RESPONSE = 'LCFO_EXTENSION_RESPONSE'
@@ -574,4 +575,20 @@ function devInstallCommand(): string {
     return 'python3 -m local_compile_for_overleaf install --browser firefox'
   }
   return `python3 -m local_compile_for_overleaf install --browser chrome --extension-id ${extensionRuntime.id}`
+}
+
+function getExtensionRuntime(): typeof chrome.runtime {
+  const global = globalThis as typeof globalThis & {
+    chrome?: { runtime?: typeof chrome.runtime }
+    browser?: { runtime?: typeof chrome.runtime }
+  }
+  const runtime = global.chrome?.runtime ?? global.browser?.runtime
+  if (!runtime) {
+    throw new Error('WebExtension runtime API is not available')
+  }
+  return runtime
+}
+
+function extensionOrigin(): string {
+  return new URL(extensionRuntime.getURL('')).origin
 }

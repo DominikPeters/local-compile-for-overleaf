@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Unofficial Native Messaging host for compiling Overleaf projects locally."
 requires-python = ">=3.11"
 authors = [{ name = "Dominik Peters" }]
+license = "AGPL-3.0-only"
 dependencies = []
 
 [project.scripts]

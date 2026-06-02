@@ -16,7 +16,7 @@
     "noEmit": true,
     "types": ["chrome", "vitest/globals"],
     "paths": {
-      "overleaf-editor-core-source": ["./src/vendor/overleaf-editor-core-source"]
+      "overleaf-editor-core-source": ["./src/vendor/overleaf-editor-core"]
     }
   },
   "include": ["src", "test", "vite.config.ts"]

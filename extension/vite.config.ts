@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       commonjs({
         include: [
-          /overleaf-ce-source\/overleaf-main\/libraries\/overleaf-editor-core/,
+          /src\/vendor\/overleaf-editor-core/,
           /node_modules/,
         ],
         transformMixedEsModules: true,
@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
         'overleaf-editor-core': resolve(__dirname, 'src/vendor/overleaf-editor-core.ts'),
         'overleaf-editor-core-source': resolve(
           __dirname,
-          '../overleaf-ce-source/overleaf-main/libraries/overleaf-editor-core/index.js'
+          'src/vendor/overleaf-editor-core/index.js'
         ),
         '@overleaf/o-error': resolve(__dirname, 'src/vendor/o-error.cjs'),
       },
@@ -47,6 +47,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: 'jsdom',
+      include: ['test/**/*.test.ts'],
     },
   }
 })

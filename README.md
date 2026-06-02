@@ -2,6 +2,10 @@
 
 Unofficial Chrome extension plus Native Messaging host for compiling an Overleaf project with a local TeX installation.
 
+## License
+
+Local Compile for Overleaf is licensed under the GNU Affero General Public License version 3. See `LICENSE` and `THIRD_PARTY_NOTICES.md`.
+
 ## Development
 
 Extension:

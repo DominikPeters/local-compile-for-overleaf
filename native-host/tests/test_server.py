@@ -436,7 +436,12 @@ def test_terminate_process_tree_escalates_to_sigkill(monkeypatch: pytest.MonkeyP
             raise subprocess.TimeoutExpired("fake", timeout)
 
     monkeypatch.setattr(server_module.os, "name", "posix")
-    monkeypatch.setattr(server_module.os, "killpg", lambda _pid, sig: calls.append(sig))
+    monkeypatch.setattr(
+        server_module.os,
+        "killpg",
+        lambda _pid, sig: calls.append(sig),
+        raising=False,
+    )
 
     terminate_process_tree(FakeProcess())  # type: ignore[arg-type]
 
