@@ -181,7 +181,12 @@ function ensureHostInstallUi() {
   pill.type = 'button'
   pill.className = 'lcfo-host-pill'
   pill.setAttribute('aria-expanded', 'false')
-  pill.innerHTML = '<span class="lcfo-warning-icon">!</span><span>Local helper missing</span>'
+  const warningIcon = document.createElement('span')
+  warningIcon.className = 'lcfo-warning-icon'
+  warningIcon.textContent = '!'
+  const warningLabel = document.createElement('span')
+  warningLabel.textContent = 'Local helper missing'
+  pill.append(warningIcon, warningLabel)
   pill.addEventListener('click', event => {
     event.preventDefault()
     event.stopPropagation()
@@ -267,10 +272,11 @@ function ensureHostInstallUi() {
   const otherOptions = document.createElement('div')
   otherOptions.className = 'lcfo-other-options'
   otherOptions.hidden = true
-  otherOptions.innerHTML = [
-    '<div>For this unpacked development extension:</div>',
-    `<code>${escapeHtml(devInstallCommand())}</code>`,
-  ].join('')
+  const devInstallLabel = document.createElement('div')
+  devInstallLabel.textContent = 'For this unpacked development extension:'
+  const devInstallCode = document.createElement('code')
+  devInstallCode.textContent = devInstallCommand()
+  otherOptions.append(devInstallLabel, devInstallCode)
 
   panel.append(titleRow, description, commandRow, actions, otherOptions)
   wrapper.append(pill, panel)
@@ -368,13 +374,28 @@ async function copyInstallCommand(button: HTMLButtonElement) {
 }
 
 function setCopyButtonLabel(button: HTMLButtonElement, label: string) {
-  button.innerHTML = [
-    '<svg class="lcfo-copy-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">',
-    '<path d="M7 4.5A2.5 2.5 0 0 1 9.5 2H14a2.5 2.5 0 0 1 2.5 2.5V11A2.5 2.5 0 0 1 14 13.5h-.5v-2H14a.5.5 0 0 0 .5-.5V4.5A.5.5 0 0 0 14 4H9.5a.5.5 0 0 0-.5.5V5H7v-.5Z"/>',
-    '<path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H11a2.5 2.5 0 0 1 2.5 2.5v6A2.5 2.5 0 0 1 11 16H6.5A2.5 2.5 0 0 1 4 13.5v-6ZM6.5 7a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5H11a.5.5 0 0 0 .5-.5v-6A.5.5 0 0 0 11 7H6.5Z"/>',
-    '</svg>',
-    `<span>${escapeHtml(label)}</span>`,
-  ].join('')
+  const labelElement = document.createElement('span')
+  labelElement.textContent = label
+  button.replaceChildren(createCopyIcon(), labelElement)
+}
+
+function createCopyIcon(): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.classList.add('lcfo-copy-icon')
+  svg.setAttribute('viewBox', '0 0 20 20')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('focusable', 'false')
+
+  const paths = [
+    'M7 4.5A2.5 2.5 0 0 1 9.5 2H14a2.5 2.5 0 0 1 2.5 2.5V11A2.5 2.5 0 0 1 14 13.5h-.5v-2H14a.5.5 0 0 0 .5-.5V4.5A.5.5 0 0 0 14 4H9.5a.5.5 0 0 0-.5.5V5H7v-.5Z',
+    'M4 7.5A2.5 2.5 0 0 1 6.5 5H11a2.5 2.5 0 0 1 2.5 2.5v6A2.5 2.5 0 0 1 11 16H6.5A2.5 2.5 0 0 1 4 13.5v-6ZM6.5 7a.5.5 0 0 0-.5.5v6a.5.5 0 0 0 .5.5H11a.5.5 0 0 0 .5-.5v-6A.5.5 0 0 0 11 7H6.5Z',
+  ]
+  for (const pathData of paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', pathData)
+    svg.append(path)
+  }
+  return svg
 }
 
 function injectHostInstallStyles() {
@@ -560,14 +581,6 @@ function injectHostInstallStyles() {
 }
 `
   ;(document.head || document.documentElement).append(style)
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
 }
 
 function devInstallCommand(): string {

@@ -26,12 +26,13 @@ export default defineConfig(({ mode }) => {
           'src/vendor/overleaf-editor-core/index.js'
         ),
         '@overleaf/o-error': resolve(__dirname, 'src/vendor/o-error.cjs'),
+        lodash: resolve(__dirname, 'src/vendor/lodash-lite.cjs'),
       },
     },
     build: {
       outDir: browserTarget === 'firefox' ? 'dist-firefox' : 'dist',
       emptyOutDir: true,
-      sourcemap: true,
+      sourcemap: process.env.LCFO_SOURCEMAP === '1',
       rollupOptions: {
         input: {
           background: resolve(__dirname, 'src/background.ts'),
