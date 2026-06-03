@@ -67,11 +67,14 @@ async function handlePageRequest(data: PageBridgeRequest) {
   let runtimeRequest: RuntimeRequest
   if (payload.kind === 'compile') {
     const loader = getSnapshotLoader(payload.projectId)
-    console.info(LOG_PREFIX, 'building Overleaf history snapshot', {
+    const preferZipFallback = isRestrictedTokenMember()
+    const snapshotSource = preferZipFallback ? 'zip fallback' : 'history snapshot'
+    console.info(LOG_PREFIX, `building Overleaf ${snapshotSource}`, {
       projectId: payload.projectId,
+      restrictedTokenMember: preferZipFallback,
     })
-    const snapshot = await loader.refresh()
-    console.info(LOG_PREFIX, 'built Overleaf history snapshot', {
+    const snapshot = await loader.refresh({ preferZipFallback })
+    console.info(LOG_PREFIX, `built Overleaf ${snapshotSource}`, {
       projectId: payload.projectId,
       version: snapshot.version,
       files: snapshot.files.length,
@@ -122,6 +125,21 @@ function getSnapshotLoader(projectId: string): ProjectSnapshotLoader {
     snapshotLoaders.set(projectId, loader)
   }
   return loader
+}
+
+function isRestrictedTokenMember(): boolean {
+  const metaValue = readBooleanMeta('ol-isRestrictedTokenMember')
+  if (metaValue != null) return metaValue
+  return false
+}
+
+function readBooleanMeta(name: string): boolean | null {
+  const element = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)
+  if (!element) return null
+  const content = element.content.trim().toLowerCase()
+  if (content === 'true') return true
+  if (content === 'false' || content === '') return false
+  return null
 }
 
 function installCompileOnWebButton() {
