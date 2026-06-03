@@ -85,12 +85,31 @@ export type RuntimeHostStatusRequest = {
   type: 'host-status'
 }
 
+export type RuntimeCustomOriginStatusRequest = {
+  type: 'custom-origin-status'
+  origin?: string
+}
+
+export type RuntimeCustomOriginAddRequest = {
+  type: 'custom-origin-add'
+  origin: string
+  pattern: string
+}
+
+export type RuntimeCustomOriginRemoveRequest = {
+  type: 'custom-origin-remove'
+  origin: string
+}
+
 export type RuntimeRequest =
   | RuntimeCompileRequest
   | RuntimeClearCacheRequest
   | RuntimeStopCompileRequest
   | RuntimeSyncRequest
   | RuntimeHostStatusRequest
+  | RuntimeCustomOriginStatusRequest
+  | RuntimeCustomOriginAddRequest
+  | RuntimeCustomOriginRemoveRequest
 
 export type NativeHelloResponse = {
   ok: true

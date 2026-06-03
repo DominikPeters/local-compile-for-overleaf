@@ -4,6 +4,7 @@ import {
   type RuntimeRequest,
 } from './types'
 import { ProjectSnapshotLoader } from './project-snapshot'
+import { findCompileToolbarTarget } from './compile-toolbar'
 
 const extensionRuntime = getExtensionRuntime()
 
@@ -19,14 +20,18 @@ let hostPanelOpen = false
 let hostMissing = false
 let hostCheckInFlight = false
 
-injectPageShim()
-injectHostInstallStyles()
-installBridge()
-installCompileOnWebButton()
-document.addEventListener('pointerdown', closeHostPanelOnOutsidePointerDown, true)
-checkHostStatus({ showPanelOnMissing: true }).catch(error => {
-  console.warn(LOG_PREFIX, 'initial native host status check failed', error)
-})
+const contentWindow = window as typeof window & { __lcfoContentLoaded?: boolean }
+if (!contentWindow.__lcfoContentLoaded) {
+  contentWindow.__lcfoContentLoaded = true
+  injectPageShim()
+  injectHostInstallStyles()
+  installBridge()
+  installCompileOnWebButton()
+  document.addEventListener('pointerdown', closeHostPanelOnOutsidePointerDown, true)
+  checkHostStatus({ showPanelOnMissing: true }).catch(error => {
+    console.warn(LOG_PREFIX, 'initial native host status check failed', error)
+  })
+}
 
 function injectPageShim() {
   const script = document.createElement('script')
@@ -142,9 +147,8 @@ function installCompileOnWebButton() {
 function ensureCompileOnWebButton() {
   if (document.querySelector('[data-lcfo-compile-on-web]')) return
 
-  const group = document.querySelector<HTMLElement>('.compile-button-group')
-  const compileButton = group?.querySelector<HTMLButtonElement>('.compile-button')
-  if (!group || !compileButton) return
+  const target = findCompileToolbarTarget(document)
+  if (!target) return
 
   const button = document.createElement('button')
   button.type = 'button'
@@ -158,10 +162,10 @@ function ensureCompileOnWebButton() {
     event.preventDefault()
     event.stopPropagation()
     document.dispatchEvent(new Event(BYPASS_NEXT_COMPILE))
-    compileButton.click()
+    target.compileButton.click()
   })
 
-  group.insertAdjacentElement('afterend', button)
+  target.group.insertAdjacentElement('afterend', button)
 }
 
 function ensureHostInstallUi() {
@@ -170,8 +174,8 @@ function ensureHostInstallUi() {
     return
   }
 
-  const group = document.querySelector<HTMLElement>('.compile-button-group')
-  if (!group) return
+  const target = findCompileToolbarTarget(document)
+  if (!target) return
 
   const wrapper = document.createElement('div')
   wrapper.dataset.lcfoHostStatus = 'true'
@@ -280,7 +284,7 @@ function ensureHostInstallUi() {
 
   panel.append(titleRow, description, commandRow, actions, otherOptions)
   wrapper.append(pill, panel)
-  group.insertAdjacentElement('afterend', wrapper)
+  target.group.insertAdjacentElement('afterend', wrapper)
   updateHostInstallUiVisibility()
 }
 

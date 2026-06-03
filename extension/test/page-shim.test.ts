@@ -133,6 +133,50 @@ describe('page fetch shim', () => {
       error: 'native host unavailable',
     })
   })
+
+  it('intercepts legacy Angular XMLHttpRequest compile requests', async () => {
+    const requestSeen = new Promise<void>(resolve => {
+      window.addEventListener(
+        'message',
+        event => {
+          if (event.data?.type !== PAGE_REQUEST) return
+          expect(event.data.payload).toMatchObject({
+            kind: 'compile',
+            projectId: 'legacy123',
+            bodyText: '{"draft":false}',
+          })
+          window.dispatchEvent(
+            new MessageEvent('message', {
+              source: window,
+              origin: window.location.origin,
+              data: {
+                type: EXTENSION_RESPONSE,
+                id: event.data.id,
+                payload: { status: 'success', outputFiles: [{ path: 'output.pdf' }] },
+              },
+            })
+          )
+          resolve()
+        },
+        { once: true }
+      )
+    })
+
+    const responsePromise = new Promise<Record<string, unknown>>(resolve => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', '/project/legacy123/compile')
+      xhr.onload = () => {
+        resolve(JSON.parse(xhr.responseText))
+      }
+      xhr.send('{"draft":false}')
+    })
+    await requestSeen
+
+    await expect(responsePromise).resolves.toMatchObject({
+      status: 'success',
+      outputFiles: [{ path: 'output.pdf' }],
+    })
+  })
 })
 
 function jsonResponse(payload: unknown): Response {

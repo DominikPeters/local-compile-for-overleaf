@@ -15,9 +15,18 @@ type PendingRequest = {
 }
 
 const originalFetch = window.fetch.bind(window)
+const OriginalXMLHttpRequest = window.XMLHttpRequest
+const originalXhrOpen = OriginalXMLHttpRequest.prototype.open
+const originalXhrSend = OriginalXMLHttpRequest.prototype.send
 const pending = new Map<number, PendingRequest>()
+const xhrRequests = new WeakMap<XMLHttpRequest, XhrRequestState>()
 let nextId = 1
 let bypassNextCompile = false
+
+type XhrRequestState = {
+  method: string
+  url: string | URL
+}
 
 function bypassNextCompileRequest() {
   bypassNextCompile = true
@@ -177,6 +186,49 @@ window.fetch = async function overleafLocalCompileFetch(input, init) {
 
 document.addEventListener(BYPASS_NEXT_COMPILE, bypassNextCompileRequest)
 
+XMLHttpRequest.prototype.open = function overleafLocalCompileXhrOpen(
+  method: string,
+  url: string | URL,
+  async?: boolean,
+  username?: string | null,
+  password?: string | null
+) {
+  xhrRequests.set(this, { method: method.toUpperCase(), url })
+  return originalXhrOpen.call(
+    this,
+    method,
+    url,
+    async ?? true,
+    username ?? null,
+    password ?? null
+  )
+}
+
+XMLHttpRequest.prototype.send = function overleafLocalCompileXhrSend(body?: Document | XMLHttpRequestBodyInit | null) {
+  const request = xhrRequests.get(this)
+  if (!request) {
+    return originalXhrSend.call(this, body)
+  }
+
+  const url = requestUrl(request.url)
+  const projectId = projectIdFromPath(url.pathname)
+  if (projectId && request.method === 'POST' && /\/project\/[^/]+\/compile$/.test(url.pathname)) {
+    if (bypassNextCompile) {
+      bypassNextCompile = false
+      console.info(LOG_PREFIX, 'compile bypassed; using Overleaf web compile')
+      return originalXhrSend.call(this, body)
+    }
+
+    interceptXhrCompile(this, projectId, url, body).catch(error => {
+      console.error(LOG_PREFIX, 'XHR compile interception failed', error)
+      completeXhrWithJson(this, compileFailure(errorMessage(error)))
+    })
+    return
+  }
+
+  return originalXhrSend.call(this, body)
+}
+
 function isPageBridgeResponse(value: unknown): value is PageBridgeResponse {
   const response = value as PageBridgeResponse
   return response.type === EXTENSION_RESPONSE && typeof response.id === 'number'
@@ -199,4 +251,47 @@ function compileFailure(message: string) {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+async function interceptXhrCompile(
+  xhr: XMLHttpRequest,
+  projectId: string,
+  url: URL,
+  body?: Document | XMLHttpRequestBodyInit | null
+) {
+  const payload = await askExtension({
+    kind: 'compile',
+    projectId,
+    url: url.href,
+    bodyText: xhrBodyText(body),
+  })
+  console.info(LOG_PREFIX, 'XHR compile intercepted response', payload)
+  completeXhrWithJson(xhr, payload ?? compileFailure('Local compile returned no response'))
+}
+
+function xhrBodyText(body?: Document | XMLHttpRequestBodyInit | null): string | null {
+  if (body == null) return null
+  if (typeof body === 'string') return body
+  if (body instanceof URLSearchParams) return body.toString()
+  return String(body)
+}
+
+function completeXhrWithJson(xhr: XMLHttpRequest, payload: unknown) {
+  const text = JSON.stringify(payload ?? null)
+  defineXhrValue(xhr, 'readyState', XMLHttpRequest.DONE)
+  defineXhrValue(xhr, 'status', 200)
+  defineXhrValue(xhr, 'statusText', 'OK')
+  defineXhrValue(xhr, 'responseText', text)
+  defineXhrValue(xhr, 'response', xhr.responseType === 'json' ? payload : text)
+  defineXhrValue(xhr, 'responseURL', xhrRequests.get(xhr)?.url.toString() ?? window.location.href)
+  xhr.dispatchEvent(new Event('readystatechange'))
+  xhr.dispatchEvent(new Event('load'))
+  xhr.dispatchEvent(new Event('loadend'))
+}
+
+function defineXhrValue(xhr: XMLHttpRequest, property: string, value: unknown) {
+  Object.defineProperty(xhr, property, {
+    configurable: true,
+    value,
+  })
 }

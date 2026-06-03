@@ -37,6 +37,16 @@ For an unpacked development Chrome install, pass the unpacked extension ID:
 python3 -m local_compile_for_overleaf install --browser chrome --extension-id <unpacked-extension-id>
 ```
 
+## Overleaf Community Edition
+
+Official `overleaf.com` project pages are enabled by default. Self-hosted Overleaf Community Edition instances are enabled per origin from the extension toolbar popup:
+
+1. Open a project page on the CE instance.
+2. Click the Local Compile for Overleaf toolbar icon.
+3. Click **Enable on this instance** and approve the browser permission prompt.
+
+The extension requests access only to the selected CE host. Broad host access is declared as an optional permission so unknown self-hosted Overleaf domains can be supported without granting access to every site at install time.
+
 ## Debugging
 
 After rebuilding the extension, reload it in `chrome://extensions` and refresh the Overleaf tab.

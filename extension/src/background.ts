@@ -1,4 +1,7 @@
 import type {
+  RuntimeCustomOriginAddRequest,
+  RuntimeCustomOriginRemoveRequest,
+  RuntimeCustomOriginStatusRequest,
   NativeHelloResponse,
   RuntimeCompileRequest,
   RuntimeClearCacheRequest,
@@ -9,6 +12,15 @@ import type {
 } from './types'
 import { shapeCompileResponse } from './compile-response'
 import { extensionOrigin, extensionRuntime } from './runtime'
+import {
+  CUSTOM_ORIGINS_STORAGE_KEY,
+  type CustomOriginRecord,
+  contentScriptIdForOrigin,
+  normalizeOrigin,
+  projectContentScriptMatch,
+  removeCustomOrigin,
+  upsertCustomOrigin,
+} from './custom-origins'
 
 const HOST_NAME = 'de.dominik_peters.local_compile_for_overleaf'
 const LOG_PREFIX = '[LCFO]'
@@ -20,6 +32,22 @@ let hello: NativeHelloResponse | null = null
 let nativeConnectAttempt = 0
 let lastNativeError: string | null = null
 let idleShutdownTimer: number | null = null
+
+registerSavedCustomOriginScripts().catch(error => {
+  console.warn(LOG_PREFIX, 'custom Overleaf content script registration failed', error)
+})
+
+extensionRuntime.onInstalled?.addListener(() => {
+  registerSavedCustomOriginScripts().catch(error => {
+    console.warn(LOG_PREFIX, 'custom Overleaf content script registration failed', error)
+  })
+})
+
+extensionRuntime.onStartup?.addListener(() => {
+  registerSavedCustomOriginScripts().catch(error => {
+    console.warn(LOG_PREFIX, 'custom Overleaf content script registration failed', error)
+  })
+})
 
 extensionRuntime.onMessage.addListener((message: RuntimeRequest, _sender, sendResponse) => {
   console.info(LOG_PREFIX, 'runtime request', summarizeRuntimeRequest(message))
@@ -51,6 +79,9 @@ async function handleRuntimeMessage(message: RuntimeRequest): Promise<unknown> {
   if (message.type === 'stop-compile') return await handleStopCompile(message)
   if (message.type === 'sync') return await handleSync(message)
   if (message.type === 'host-status') return await handleHostStatus(message)
+  if (message.type === 'custom-origin-status') return await handleCustomOriginStatus(message)
+  if (message.type === 'custom-origin-add') return await handleCustomOriginAdd(message)
+  if (message.type === 'custom-origin-remove') return await handleCustomOriginRemove(message)
   throw new Error('Unknown runtime message')
 }
 
@@ -150,6 +181,44 @@ async function handleSync(message: RuntimeSyncRequest): Promise<unknown> {
       buildId
     )}/sync/${direction}?${params.toString()}`
   )
+}
+
+async function handleCustomOriginStatus(
+  message: RuntimeCustomOriginStatusRequest
+): Promise<unknown> {
+  const records = await readCustomOrigins()
+  const normalizedOrigin = message.origin ? normalizeOrigin(message.origin) : null
+  return {
+    origins: records,
+    enabled: normalizedOrigin
+      ? records.some(record => record.origin === normalizedOrigin)
+      : false,
+    canRegisterContentScripts: Boolean(getScriptingApi()?.registerContentScripts),
+  }
+}
+
+async function handleCustomOriginAdd(message: RuntimeCustomOriginAddRequest): Promise<unknown> {
+  const origin = normalizeOrigin(message.origin)
+  const record: CustomOriginRecord = {
+    origin,
+    pattern: message.pattern,
+    enabledAt: new Date().toISOString(),
+  }
+  const records = upsertCustomOrigin(await readCustomOrigins(), record)
+  await writeCustomOrigins(records)
+  await registerCustomOriginScripts(records)
+  return { ok: true, origin, origins: records }
+}
+
+async function handleCustomOriginRemove(
+  message: RuntimeCustomOriginRemoveRequest
+): Promise<unknown> {
+  const origin = normalizeOrigin(message.origin)
+  const records = removeCustomOrigin(await readCustomOrigins(), origin)
+  await writeCustomOrigins(records)
+  await unregisterCustomOriginScript(origin)
+  await registerCustomOriginScripts(records)
+  return { ok: true, origin, origins: records }
 }
 
 async function ensureHost(): Promise<NativeHelloResponse> {
@@ -271,9 +340,15 @@ function parseCompileBody(bodyText: string | null): Record<string, unknown> {
 }
 
 function summarizeRuntimeRequest(message: RuntimeRequest) {
-  if (message.type === 'host-status') {
+  if (
+    message.type === 'host-status' ||
+    message.type === 'custom-origin-status' ||
+    message.type === 'custom-origin-add' ||
+    message.type === 'custom-origin-remove'
+  ) {
     return {
       type: message.type,
+      origin: 'origin' in message ? message.origin : undefined,
     }
   }
   if (message.type === 'compile') {
@@ -290,6 +365,109 @@ function summarizeRuntimeRequest(message: RuntimeRequest) {
     projectId: message.request.projectId,
     query: message.request.query,
   }
+}
+
+async function registerSavedCustomOriginScripts() {
+  await registerCustomOriginScripts(await readCustomOrigins())
+}
+
+async function registerCustomOriginScripts(records: CustomOriginRecord[]) {
+  const scripting = getScriptingApi()
+  if (!scripting?.registerContentScripts) return
+
+  const existing = await getRegisteredContentScripts()
+  const existingIds = new Set(existing.map(script => script.id))
+  for (const record of records) {
+    const id = contentScriptIdForOrigin(record.origin)
+    if (existingIds.has(id)) continue
+    await callChromeApi<void>(callback => {
+      scripting.registerContentScripts(
+        [
+          {
+            id,
+            matches: [projectContentScriptMatch(record.pattern)],
+            js: ['content.js'],
+            runAt: 'document_start',
+            persistAcrossSessions: true,
+          },
+        ],
+        callback
+      )
+    })
+  }
+}
+
+async function unregisterCustomOriginScript(origin: string) {
+  const scripting = getScriptingApi()
+  if (!scripting?.unregisterContentScripts) return
+  await callChromeApi<void>(callback => {
+    scripting.unregisterContentScripts({ ids: [contentScriptIdForOrigin(origin)] }, callback)
+  })
+}
+
+async function getRegisteredContentScripts(): Promise<Array<{ id: string }>> {
+  const scripting = getScriptingApi()
+  if (!scripting?.getRegisteredContentScripts) return []
+  return await callChromeApi<Array<{ id: string }>>(callback => {
+    scripting.getRegisteredContentScripts({}, callback)
+  })
+}
+
+async function readCustomOrigins(): Promise<CustomOriginRecord[]> {
+  const storage = getStorageApi()
+  if (!storage?.local) return []
+  const data = await callChromeApi<Record<string, unknown>>(callback => {
+    storage.local.get(CUSTOM_ORIGINS_STORAGE_KEY, callback)
+  })
+  const value = data[CUSTOM_ORIGINS_STORAGE_KEY]
+  if (!Array.isArray(value)) return []
+  return value.filter(isCustomOriginRecord)
+}
+
+async function writeCustomOrigins(records: CustomOriginRecord[]) {
+  const storage = getStorageApi()
+  if (!storage?.local) return
+  await callChromeApi<void>(callback => {
+    storage.local.set({ [CUSTOM_ORIGINS_STORAGE_KEY]: records }, callback)
+  })
+}
+
+function isCustomOriginRecord(value: unknown): value is CustomOriginRecord {
+  const record = value as CustomOriginRecord
+  return (
+    typeof record?.origin === 'string' &&
+    typeof record.pattern === 'string' &&
+    typeof record.enabledAt === 'string'
+  )
+}
+
+function getScriptingApi(): typeof chrome.scripting | null {
+  const global = globalThis as typeof globalThis & {
+    chrome?: { scripting?: typeof chrome.scripting }
+    browser?: { scripting?: typeof chrome.scripting }
+  }
+  return global.chrome?.scripting ?? global.browser?.scripting ?? null
+}
+
+function getStorageApi(): typeof chrome.storage | null {
+  const global = globalThis as typeof globalThis & {
+    chrome?: { storage?: typeof chrome.storage }
+    browser?: { storage?: typeof chrome.storage }
+  }
+  return global.chrome?.storage ?? global.browser?.storage ?? null
+}
+
+async function callChromeApi<T>(invoke: (callback: (value: T) => void) => void): Promise<T> {
+  return await new Promise<T>((resolve, reject) => {
+    invoke(value => {
+      const error = extensionRuntime.lastError
+      if (error) {
+        reject(new Error(error.message))
+      } else {
+        resolve(value)
+      }
+    })
+  })
 }
 
 function nativeDebugState() {

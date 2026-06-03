@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Compile for Overleaf</title>
+  </head>
+  <body>
+    <main class="lcfo-popup">
+      <header class="lcfo-header">
+        <img src="icons/icon-32.png" alt="" width="32" height="32" />
+        <div>
+          <h1>Local Compile for Overleaf</h1>
+          <p data-lcfo-subtitle>Checking current tab...</p>
+        </div>
+      </header>
+      <section class="lcfo-status" data-lcfo-status></section>
+      <div class="lcfo-actions">
+        <button type="button" class="lcfo-primary" data-lcfo-enable hidden>
+          Enable on this instance
+        </button>
+        <button type="button" class="lcfo-secondary" data-lcfo-inject hidden>
+          Inject now
+        </button>
+        <button type="button" class="lcfo-secondary" data-lcfo-remove hidden>
+          Disable this instance
+        </button>
+      </div>
+      <section class="lcfo-helper" data-lcfo-helper></section>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
