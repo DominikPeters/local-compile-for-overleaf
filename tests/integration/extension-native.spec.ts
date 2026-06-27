@@ -31,6 +31,7 @@ test.describe('Chrome extension with real Native Messaging host', () => {
     cleanupNativeHostManifest = await installNativeHostManifest({
       home: process.env.LCFO_E2E_NATIVE_MANIFEST_HOME || homedir(),
       extraDirs: [join(tempRoot, 'profile', 'NativeMessagingHosts')],
+      manifestDir: join(tempRoot, 'NativeMessagingHosts'),
       wrapperPath: await installNativeHostWrapper(tempRoot),
       extensionId: testExtension.extensionId,
     })
@@ -262,11 +263,13 @@ async function installNativeHostWrapper(tempRoot: string): Promise<string> {
 async function installNativeHostManifest({
   home,
   extraDirs = [],
+  manifestDir,
   wrapperPath,
   extensionId,
 }: {
   home: string
   extraDirs?: string[]
+  manifestDir?: string
   wrapperPath: string
   extensionId: string
 }): Promise<() => Promise<void>> {
@@ -278,9 +281,9 @@ async function installNativeHostManifest({
     allowed_origins: [`chrome-extension://${extensionId}/`],
   }
   if (process.platform === 'win32') {
-    const manifestDir = join(tempRoot, 'NativeMessagingHosts')
-    await mkdir(manifestDir, { recursive: true })
-    const manifestPath = join(manifestDir, `${HOST_NAME}.json`)
+    const windowsManifestDir = manifestDir ?? join(home, 'NativeMessagingHosts')
+    await mkdir(windowsManifestDir, { recursive: true })
+    const manifestPath = join(windowsManifestDir, `${HOST_NAME}.json`)
     await writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
     return await installWindowsNativeHostRegistry(manifestPath)
   }

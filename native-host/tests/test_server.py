@@ -17,6 +17,7 @@ from local_compile_for_overleaf.server import (
     build_latexmk_command,
     decode_process_output,
     ensure_output_synctex,
+    find_executable,
     inject_draft_mode,
     is_allowed_output_origin,
     normalize_synctex_file,
@@ -448,6 +449,18 @@ def test_terminate_process_tree_escalates_to_sigkill(monkeypatch: pytest.MonkeyP
     terminate_process_tree(FakeProcess())  # type: ignore[arg-type]
 
     assert calls == [signal.SIGTERM, sigkill]
+
+
+def test_find_executable_accepts_configured_windows_command_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    latexmk = tmp_path / "latexmk.cmd"
+    latexmk.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setenv("LCFO_LATEXMK_PATH", str(latexmk))
+    monkeypatch.setattr(server_module.os, "name", "nt")
+
+    assert find_executable("latexmk") == str(latexmk)
 
 
 def test_prune_old_builds_removes_only_oldest_builds(tmp_path: Path) -> None:

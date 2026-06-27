@@ -899,9 +899,17 @@ def find_executable(name: str) -> str | None:
         f"/usr/local/bin/{name}",
     ]
     for candidate in candidates:
-        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        if candidate and is_executable_file(candidate):
             return candidate
     return None
+
+
+def is_executable_file(path: str) -> bool:
+    if not os.path.isfile(path):
+        return False
+    if os.name == "nt":
+        return True
+    return os.access(path, os.X_OK)
 
 
 def decode_process_output(value: bytes | str | None) -> str:
