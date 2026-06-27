@@ -1,15 +1,18 @@
 import { chromium, expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { execFile } from 'node:child_process'
 import { createHash, generateKeyPairSync } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { chmodSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { promisify } from 'node:util'
 
 const REPO_ROOT = resolve(__dirname, '../..')
 const EXTENSION_DIST = join(REPO_ROOT, 'extension/dist')
 const HOST_NAME = 'de.dominik_peters.local_compile_for_overleaf'
 const PROJECT_ID = 'project-123'
+const execFileAsync = promisify(execFile)
 
 test.describe('Chrome extension with real Native Messaging host', () => {
   let tempRoot: string
@@ -20,6 +23,8 @@ test.describe('Chrome extension with real Native Messaging host', () => {
 
   test.beforeEach(async () => {
     tempRoot = await mkdtemp(join(tmpdir(), 'lcfo-e2e-'))
+    const tempHome = join(tempRoot, 'home')
+    await mkdir(tempHome, { recursive: true })
     mockOverleaf = await startMockOverleaf()
     fakeTools = await installFakeTools(tempRoot)
     const testExtension = await installTestExtension(tempRoot)
@@ -39,7 +44,8 @@ test.describe('Chrome extension with real Native Messaging host', () => {
       ],
       env: {
         ...process.env,
-        HOME: join(tempRoot, 'home'),
+        HOME: tempHome,
+        ...(process.platform === 'win32' ? { USERPROFILE: tempHome } : {}),
         PYTHONPATH: join(REPO_ROOT, 'native-host/src'),
         LCFO_LATEXMK_PATH: fakeTools.latexmk,
         LCFO_SYNCTEX_PATH: fakeTools.synctex,
@@ -237,6 +243,8 @@ function extensionIdFromPublicKey(publicKeyDer: Buffer): string {
 }
 
 async function installNativeHostWrapper(tempRoot: string): Promise<string> {
+  if (process.platform === 'win32') return await findWindowsCommand('local-compile-for-overleaf')
+
   const wrapperPath = join(tempRoot, 'local-compile-for-overleaf-host')
   await writeFile(
     wrapperPath,
@@ -269,6 +277,14 @@ async function installNativeHostManifest({
     type: 'stdio',
     allowed_origins: [`chrome-extension://${extensionId}/`],
   }
+  if (process.platform === 'win32') {
+    const manifestDir = join(tempRoot, 'NativeMessagingHosts')
+    await mkdir(manifestDir, { recursive: true })
+    const manifestPath = join(manifestDir, `${HOST_NAME}.json`)
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8')
+    return await installWindowsNativeHostRegistry(manifestPath)
+  }
+
   const restorations: Array<() => Promise<void>> = []
   for (const dir of [...nativeHostManifestDirs(home), ...extraDirs]) {
     await mkdir(dir, { recursive: true })
@@ -297,15 +313,61 @@ function nativeHostManifestDirs(home: string): string[] {
       join(home, 'Library/Application Support/Microsoft Edge/NativeMessagingHosts'),
     ]
   }
-  if (process.platform === 'win32') {
-    throw new Error('The Native Messaging integration test is not wired for Windows yet')
-  }
   return [
     join(home, '.config/chromium/NativeMessagingHosts'),
     join(home, '.config/google-chrome/NativeMessagingHosts'),
     join(home, '.config/google-chrome-for-testing/NativeMessagingHosts'),
     join(home, '.config/microsoft-edge/NativeMessagingHosts'),
   ]
+}
+
+async function installWindowsNativeHostRegistry(manifestPath: string): Promise<() => Promise<void>> {
+  const keys = [
+    `Software\\Chromium\\NativeMessagingHosts\\${HOST_NAME}`,
+    `Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`,
+    `Software\\Microsoft\\Edge\\NativeMessagingHosts\\${HOST_NAME}`,
+  ]
+  const restorations: Array<() => Promise<void>> = []
+  for (const key of keys) {
+    const existing = await readWindowsRegistryDefaultValue(key)
+    await reg(['add', `HKCU\\${key}`, '/ve', '/t', 'REG_SZ', '/d', manifestPath, '/f'])
+    restorations.push(async () => {
+      if (existing == null) {
+        await reg(['delete', `HKCU\\${key}`, '/f'], { allowFailure: true })
+      } else {
+        await reg(['add', `HKCU\\${key}`, '/ve', '/t', 'REG_SZ', '/d', existing, '/f'])
+      }
+    })
+  }
+  return async () => {
+    for (const restore of restorations.reverse()) await restore()
+  }
+}
+
+async function readWindowsRegistryDefaultValue(key: string): Promise<string | null> {
+  const result = await reg(['query', `HKCU\\${key}`, '/ve'], { allowFailure: true })
+  if (result == null) return null
+  const match = result.stdout.match(/\sREG_SZ\s+(.+)\r?\n?$/m)
+  return match?.[1]?.trim() || null
+}
+
+async function reg(
+  args: string[],
+  options: { allowFailure?: boolean } = {}
+): Promise<{ stdout: string; stderr: string } | null> {
+  try {
+    return await execFileAsync('reg.exe', args)
+  } catch (error: any) {
+    if (options.allowFailure) return null
+    throw error
+  }
+}
+
+async function findWindowsCommand(command: string): Promise<string> {
+  const { stdout } = await execFileAsync('where.exe', [command])
+  const path = stdout.split(/\r?\n/).find(Boolean)
+  if (!path) throw new Error(`Could not find ${command} on PATH`)
+  return path
 }
 
 async function readOptionalFile(path: string): Promise<Buffer | null> {
@@ -383,7 +445,14 @@ async function startMockOverleaf(): Promise<MockOverleaf> {
     }
   })
 
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error)
+    server.once('error', onError)
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', onError)
+      resolve()
+    })
+  })
   return {
     get port() {
       const address = server.address()
@@ -443,15 +512,29 @@ type FakeTools = {
 async function installFakeTools(tempRoot: string): Promise<FakeTools> {
   const bin = join(tempRoot, 'bin')
   await mkdir(bin, { recursive: true })
-  const latexmk = join(bin, 'latexmk.cjs')
-  const synctex = join(bin, 'synctex.cjs')
+  const latexmkScript = join(bin, 'latexmk.cjs')
+  const synctexScript = join(bin, 'synctex.cjs')
+  const latexmk = process.platform === 'win32' ? join(bin, 'latexmk.cmd') : latexmkScript
+  const synctex = process.platform === 'win32' ? join(bin, 'synctex.cmd') : synctexScript
   const latexmkLog = join(tempRoot, 'latexmk.jsonl')
 
-  await writeFile(latexmk, fakeLatexmkScript(), 'utf8')
-  await writeFile(synctex, fakeSynctexScript(), 'utf8')
+  await writeFile(latexmkScript, fakeLatexmkScript(), 'utf8')
+  await writeFile(synctexScript, fakeSynctexScript(), 'utf8')
+  if (process.platform === 'win32') {
+    await writeFile(latexmk, windowsNodeWrapper(latexmkScript), 'utf8')
+    await writeFile(synctex, windowsNodeWrapper(synctexScript), 'utf8')
+  }
   chmodSync(latexmk, 0o755)
   chmodSync(synctex, 0o755)
   return { latexmk, synctex, latexmkLog }
+}
+
+function windowsNodeWrapper(scriptPath: string): string {
+  return [
+    '@echo off',
+    `"${process.execPath}" "${scriptPath}" %*`,
+    '',
+  ].join('\r\n')
 }
 
 function fakeLatexmkScript(): string {

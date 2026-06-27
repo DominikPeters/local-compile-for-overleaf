@@ -16,8 +16,12 @@ concurrency:
 
 jobs:
   chrome-native-messaging:
-    name: Chrome extension and native host
-    runs-on: ubuntu-latest
+    name: Chrome extension and native host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Check out repository
@@ -45,8 +49,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e native-host
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright Chromium and Linux dependencies
+        if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright Chromium
+        if: runner.os != 'Linux'
+        run: npx playwright install chromium
 
       - name: Run browser integration tests
         run: npm run test:integration
@@ -55,6 +64,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-results
+          name: playwright-results-${{ matrix.os }}
           path: test-results/
           if-no-files-found: ignore
