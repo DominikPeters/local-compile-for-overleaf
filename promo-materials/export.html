@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Export — promo artboards</title>
+<link rel="stylesheet" href="promo.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  html, body { margin: 0; background: #555; width: fit-content; overflow: hidden; }
+  #stage { display: block; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script type="text/babel" src="mockups.jsx?v=3"></script>
+<script type="text/babel" src="slides.jsx?v=3"></script>
+<script type="text/babel" src="tiles.jsx?v=3"></script>
+<script type="text/babel">
+  const ALL = [...window.PROMO_SLIDES, ...window.PROMO_TILES];
+  const root = ReactDOM.createRoot(document.getElementById('stage'));
+  window.showArt = function (id) {
+    const item = ALL.find((a) => a.id === id);
+    if (!item) { throw new Error('unknown artboard: ' + id); }
+    root.render(<item.C />);
+    return id;
+  };
+  window.ART_IDS = ALL.map((a) => a.id);
+  window.showTile = function (id, x, y) {
+    window.showArt(id);
+    const s = document.getElementById('stage');
+    s.style.marginLeft = -x + 'px';
+    s.style.marginTop = -y + 'px';
+    return id + ',' + x + ',' + y;
+  };
+  window.showFontTest = function () {
+    root.render(
+      <div style={{ background: '#fff', padding: 20, display: 'grid', gap: 12, justifyItems: 'start' }}>
+        {[
+          ['IBM Plex Sans', 700],
+          ['Lato', 700],
+          ['IBM Plex Mono', 400],
+        ].map(([f, w]) => (
+          <span key={f} style={{ fontFamily: `'${f}'`, fontWeight: w, fontSize: 34, border: '2px solid red', lineHeight: 1.2 }}>
+            {f} — Quick gym vibes 123
+          </span>
+        ))}
+      </div>
+    );
+    return 'font-test';
+  };
+  window.showArt(ALL[0].id);
+</script>
+</body>
+</html>
