@@ -4,6 +4,7 @@ import {
 } from './types'
 
 const BYPASS_NEXT_COMPILE = 'LCFO_BYPASS_NEXT_COMPILE'
+const COMPILE_ON_WEB = 'LCFO_COMPILE_ON_WEB'
 const EXTENSION_RESPONSE = 'LCFO_EXTENSION_RESPONSE'
 const PAGE_REQUEST = 'LCFO_PAGE_REQUEST'
 const LOG_PREFIX = '[LCFO]'
@@ -31,6 +32,46 @@ type XhrRequestState = {
 function bypassNextCompileRequest() {
   bypassNextCompile = true
   console.info(LOG_PREFIX, 'next compile will bypass local shim')
+}
+
+function compileOnWeb() {
+  console.info(LOG_PREFIX, 'compile-on-web requested')
+  bypassNextCompileRequest()
+  const compileButton = findCompileButton()
+  if (!compileButton) {
+    console.warn(LOG_PREFIX, 'could not find Overleaf compile button for web compile')
+    return
+  }
+  console.info(LOG_PREFIX, 'dispatching Overleaf compile button click', {
+    legacyAngular: compileButton.matches(
+      '#recompile.btn-recompile-group .btn-recompile:not(.dropdown-toggle)[ng-click="recompile()"]'
+    ),
+  })
+  compileButton.dispatchEvent(
+    new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+    })
+  )
+}
+
+function handleCompileOnWebButtonClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  if (!target.closest('[data-lcfo-compile-on-web]')) return
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  compileOnWeb()
+}
+
+function findCompileButton(): HTMLElement | null {
+  const current = document.querySelector<HTMLElement>(
+    '.compile-button-group .compile-button'
+  )
+  if (current) return current
+  return document.querySelector<HTMLElement>(
+    '#recompile.btn-recompile-group .btn-recompile:not(.dropdown-toggle)[ng-click="recompile()"]'
+  )
 }
 
 function projectIdFromPath(pathname: string): string | null {
@@ -185,6 +226,8 @@ window.fetch = async function overleafLocalCompileFetch(input, init) {
 }
 
 document.addEventListener(BYPASS_NEXT_COMPILE, bypassNextCompileRequest)
+document.addEventListener(COMPILE_ON_WEB, compileOnWeb)
+document.addEventListener('click', handleCompileOnWebButtonClick, true)
 
 XMLHttpRequest.prototype.open = function overleafLocalCompileXhrOpen(
   method: string,

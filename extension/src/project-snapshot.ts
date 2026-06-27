@@ -91,7 +91,7 @@ export class ProjectSnapshotLoader {
       await this.loadDocs(changedPaths)
       return await this.toPayload({ full, changedPaths, deletedFiles })
     } catch (error) {
-      if (isHistorySnapshotForbidden(error)) {
+      if (isHistorySnapshotUnavailable(error)) {
         return await this.loadZipSnapshot()
       }
       throw error
@@ -314,8 +314,13 @@ async function fetchJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 }
 
-function isHistorySnapshotForbidden(error: unknown): boolean {
-  if (!(error instanceof OverleafRequestError) || error.status !== 403) return false
+function isHistorySnapshotUnavailable(error: unknown): boolean {
+  if (
+    !(error instanceof OverleafRequestError) ||
+    ![403, 404].includes(error.status)
+  ) {
+    return false
+  }
   return (
     /^\/project\/[^/]+\/flush$/.test(error.path) ||
     /^\/project\/[^/]+\/latest\/history$/.test(error.path) ||

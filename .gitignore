@@ -1,4 +1,5 @@
 /overleaf-ce-source
+/overleaf-archaeology
 node_modules/
 extension/dist/
 extension/dist-firefox/

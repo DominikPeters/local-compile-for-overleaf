@@ -8,7 +8,6 @@ import { findCompileToolbarTarget } from './compile-toolbar'
 
 const extensionRuntime = getExtensionRuntime()
 
-const BYPASS_NEXT_COMPILE = 'LCFO_BYPASS_NEXT_COMPILE'
 const EXTENSION_RESPONSE = 'LCFO_EXTENSION_RESPONSE'
 const PAGE_REQUEST = 'LCFO_PAGE_REQUEST'
 const LOG_PREFIX = '[LCFO]'
@@ -67,11 +66,12 @@ async function handlePageRequest(data: PageBridgeRequest) {
   let runtimeRequest: RuntimeRequest
   if (payload.kind === 'compile') {
     const loader = getSnapshotLoader(payload.projectId)
-    const preferZipFallback = isRestrictedTokenMember()
+    const snapshotMode = detectSnapshotMode()
+    const preferZipFallback = snapshotMode !== 'history'
     const snapshotSource = preferZipFallback ? 'zip fallback' : 'history snapshot'
     console.info(LOG_PREFIX, `building Overleaf ${snapshotSource}`, {
       projectId: payload.projectId,
-      restrictedTokenMember: preferZipFallback,
+      snapshotMode,
     })
     const snapshot = await loader.refresh({ preferZipFallback })
     console.info(LOG_PREFIX, `built Overleaf ${snapshotSource}`, {
@@ -133,6 +133,14 @@ function isRestrictedTokenMember(): boolean {
   return false
 }
 
+function detectSnapshotMode(): 'history' | 'restricted-token-zip' | 'legacy-angular-zip' {
+  if (isRestrictedTokenMember()) return 'restricted-token-zip'
+  if (findCompileToolbarTarget(document)?.variant === 'legacy-angular-ce') {
+    return 'legacy-angular-zip'
+  }
+  return 'history'
+}
+
 function readBooleanMeta(name: string): boolean | null {
   const element = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)
   if (!element) return null
@@ -176,13 +184,6 @@ function ensureCompileOnWebButton() {
   button.style.marginLeft = '6px'
   button.style.height = '28px'
   button.style.alignSelf = 'center'
-  button.addEventListener('click', event => {
-    event.preventDefault()
-    event.stopPropagation()
-    document.dispatchEvent(new Event(BYPASS_NEXT_COMPILE))
-    target.compileButton.click()
-  })
-
   target.group.insertAdjacentElement('afterend', button)
 }
 

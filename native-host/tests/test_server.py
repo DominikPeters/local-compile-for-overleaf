@@ -626,7 +626,56 @@ def test_cors_allows_configured_extension_api_origin() -> None:
 def test_output_cors_allows_overleaf_and_local_viewer_origins() -> None:
     assert is_allowed_output_origin("https://www.overleaf.com")
     assert is_allowed_output_origin("https://foo.overleaf.com")
+    assert is_allowed_output_origin("https://plmlatex.math.cnrs.fr")
+    assert is_allowed_output_origin("http://community-edition.example:8080")
     assert is_allowed_output_origin("moz-extension://12345678-1234-1234-1234-123456789abc")
     assert is_allowed_output_origin("http://127.0.0.1:3000")
     assert is_allowed_output_origin("http://localhost:3000")
-    assert not is_allowed_output_origin("https://evil.example")
+    assert not is_allowed_output_origin("file:///tmp/output.pdf")
+
+
+def test_output_route_allows_private_network_preflight_from_custom_ce_origin(
+    tmp_path: Path,
+) -> None:
+    try:
+        server = LocalCompileServer(
+            allowed_origins={"chrome-extension://allowed-extension"}
+        )
+    except PermissionError as error:
+        pytest.skip(f"local socket binding blocked by sandbox: {error}")
+    server.cache_root = tmp_path
+    project_id = "project"
+    build_id = "build"
+    output_path = server.build_dir(project_id, build_id) / "output.pdf"
+    output_path.parent.mkdir(parents=True)
+    output_path.write_bytes(b"%PDF-1.7\n")
+    token = server.output_token(project_id, build_id)
+    url = (
+        f"http://127.0.0.1:{server.port}/lcfo/{token}/project/"
+        f"{project_id}/build/{build_id}/output/output.pdf"
+    )
+    origin = "https://plmlatex.math.cnrs.fr"
+    server.start()
+    try:
+        preflight = urllib.request.Request(
+            url,
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Private-Network": "true",
+            },
+            method="OPTIONS",
+        )
+        with urllib.request.urlopen(preflight) as response:
+            assert response.status == 204
+            assert response.headers["Access-Control-Allow-Origin"] == origin
+            assert response.headers["Access-Control-Allow-Private-Network"] == "true"
+
+        request = urllib.request.Request(url, headers={"Origin": origin})
+        with urllib.request.urlopen(request) as response:
+            assert response.status == 200
+            assert response.headers["Access-Control-Allow-Origin"] == origin
+            assert response.headers["Access-Control-Allow-Private-Network"] == "true"
+            assert response.read() == b"%PDF-1.7\n"
+    finally:
+        server.stop()

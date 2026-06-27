@@ -270,36 +270,42 @@ describe('ProjectSnapshotLoader', () => {
     })
   })
 
-  it('falls back to project zip download only for forbidden history snapshot endpoints', async () => {
-    const requests: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-      const path = requestPath(input)
-      requests.push(path)
-      if (path === `/project/${PROJECT_ID}/flush`) {
-        return new Response('Forbidden', { status: 403, statusText: 'Forbidden' })
-      }
-      if (path === `/Project/${PROJECT_ID}/download/zip`) {
-        return new Response(
-          makeStoredZip([{ path: 'main.tex', content: textBytes('from zip') }])
-        )
-      }
-      throw new Error(`Unexpected request: ${path}`)
-    }))
+  it.each([
+    { status: 403, statusText: 'Forbidden' },
+    { status: 404, statusText: 'Not Found' },
+  ])(
+    'falls back to project zip download only when history snapshot endpoints return $status',
+    async ({ status, statusText }) => {
+      const requests: string[] = []
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const path = requestPath(input)
+        requests.push(path)
+        if (path === `/project/${PROJECT_ID}/flush`) {
+          return new Response(statusText, { status, statusText })
+        }
+        if (path === `/Project/${PROJECT_ID}/download/zip`) {
+          return new Response(
+            makeStoredZip([{ path: 'main.tex', content: textBytes('from zip') }])
+          )
+        }
+        throw new Error(`Unexpected request: ${path}`)
+      }))
 
-    const payload = await new ProjectSnapshotLoader(PROJECT_ID).refresh()
+      const payload = await new ProjectSnapshotLoader(PROJECT_ID).refresh()
 
-    expect(requests).toEqual([
-      `/project/${PROJECT_ID}/flush`,
-      `/Project/${PROJECT_ID}/download/zip`,
-    ])
-    expect(payload.files).toEqual([
-      {
-        path: 'main.tex',
-        encoding: 'utf8',
-        content: 'from zip',
-      },
-    ])
-  })
+      expect(requests).toEqual([
+        `/project/${PROJECT_ID}/flush`,
+        `/Project/${PROJECT_ID}/download/zip`,
+      ])
+      expect(payload.files).toEqual([
+        {
+          path: 'main.tex',
+          encoding: 'utf8',
+          content: 'from zip',
+        },
+      ])
+    }
+  )
 
   it('materializes deflated project zip entries', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {

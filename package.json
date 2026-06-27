@@ -18,9 +18,11 @@
     "test:integration": "npm run build && playwright test",
     "test:native": "python -m pytest native-host/tests",
     "test:native:fast": "python -m pytest native-host/tests -m 'not tex'",
-    "test:tex": "python -m pytest native-host/tests -m tex"
+    "test:tex": "python -m pytest native-host/tests -m tex",
+    "rasterize:promo": "node promo-materials/rasterize.cjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0"
+    "@playwright/test": "^1.60.0",
+    "esbuild": "^0.25.12"
   }
 }

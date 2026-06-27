@@ -11,6 +11,7 @@ describe('page fetch shim', () => {
 
   beforeEach(() => {
     originalFetch.mockReset()
+    document.body.innerHTML = ''
   })
 
   it('intercepts Overleaf compile fetches and returns the extension response as JSON', async () => {
@@ -95,6 +96,39 @@ describe('page fetch shim', () => {
 
     await expect(secondPromise).resolves.toEqual({ status: 'local-success' })
     expect(originalFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('handles Compile on web button clicks in the page world on legacy Angular toolbars', async () => {
+    originalFetch.mockResolvedValue(jsonResponse({ status: 'web-success' }))
+    document.body.innerHTML = `
+      <div class="toolbar toolbar-pdf">
+        <div class="btn-group btn-recompile-group" id="recompile" dropdown="">
+          <a class="btn btn-recompile" href="" ng-disabled="pdf.compiling" ng-click="recompile()">
+            <span class="btn-recompile-label">Recompiler</span>
+          </a>
+          <a class="btn btn-recompile dropdown-toggle" href="" dropdown-toggle="">
+            <span class="caret"></span>
+          </a>
+        </div>
+      </div>
+      <button type="button" data-lcfo-compile-on-web="true">Compile on web</button>
+    `
+    const compileButton = document.querySelector<HTMLElement>(
+      '#recompile .btn-recompile:not(.dropdown-toggle)'
+    )
+    expect(compileButton).not.toBeNull()
+    const compileFinished = new Promise<void>(resolve => {
+      compileButton?.addEventListener('click', event => {
+        event.preventDefault()
+        window.fetch('/project/legacy123/compile', { method: 'POST' }).then(() => resolve())
+      })
+    })
+
+    document.querySelector<HTMLButtonElement>('[data-lcfo-compile-on-web]')?.click()
+    await compileFinished
+
+    expect(originalFetch).toHaveBeenCalledTimes(1)
+    expect(originalFetch).toHaveBeenCalledWith('/project/legacy123/compile', { method: 'POST' })
   })
 
   it('turns bridge failures into Overleaf-shaped compile failures', async () => {

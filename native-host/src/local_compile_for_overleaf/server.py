@@ -221,12 +221,16 @@ class LocalCompileServer:
 
             def _cors(self) -> None:
                 origin = self.headers.get("Origin")
+                output_route = self._match_output_route(urlparse(self.path).path) is not None
                 allowed_origin = outer.allowed_cors_origin(
                     origin,
-                    output_route=self._match_output_route(urlparse(self.path).path) is not None,
+                    output_route=output_route,
                 )
                 if allowed_origin:
                     self.send_header("Access-Control-Allow-Origin", allowed_origin)
+                    self.send_header("Vary", "Origin")
+                if output_route:
+                    self.send_header("Access-Control-Allow-Private-Network", "true")
                 self.send_header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
                 self.send_header("Access-Control-Allow-Headers", "Authorization,Content-Type,Range")
                 self.send_header("Access-Control-Expose-Headers", "Accept-Ranges,Content-Length,Content-Range")
@@ -476,6 +480,7 @@ class LocalCompileServer:
         path = safe_join(self.build_dir(project_id, build_id), file_name)
         if not path.is_file():
             handler.send_response(HTTPStatus.NOT_FOUND)
+            self.send_output_cors_headers(handler)
             handler.end_headers()
             return
         content = path.read_bytes()
@@ -511,6 +516,8 @@ class LocalCompileServer:
         )
         if allowed_origin:
             handler.send_header("Access-Control-Allow-Origin", allowed_origin)
+            handler.send_header("Access-Control-Allow-Private-Network", "true")
+            handler.send_header("Vary", "Origin")
         handler.send_header(
             "Access-Control-Expose-Headers",
             "Accept-Ranges,Content-Length,Content-Range",
@@ -952,14 +959,10 @@ def is_allowed_output_origin(origin: str) -> bool:
     parsed = urlparse(origin)
     if parsed.scheme in {"chrome-extension", "moz-extension"}:
         return bool(parsed.netloc)
-    host = parsed.hostname or ""
-    if parsed.scheme == "https" and (
-        host == "www.overleaf.com" or host.endswith(".overleaf.com")
-    ):
-        return True
-    if parsed.scheme == "http" and host in {"127.0.0.1", "localhost"}:
-        return True
-    return False
+    # Output URLs contain a short-lived per-build bearer token and are intended
+    # to be fetched by Overleaf CE origins that the extension cannot know ahead
+    # of time. Authenticated API routes remain restricted to extension origins.
+    return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
 
 
 def safe_join(base: Path, posix_path: str) -> Path:
