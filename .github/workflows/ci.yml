@@ -70,5 +70,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e native-host pytest
 
+      - name: Smoke test Windows native host installer
+        if: runner.os == 'Windows'
+        run: python -m local_compile_for_overleaf install --browser chrome --extension-id abcdefghijklmnopabcdefghijklmnop
+
       - name: Test native host without real TeX fixtures
         run: python -m pytest native-host/tests -m "not tex"

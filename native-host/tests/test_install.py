@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+import uuid
 
+import pytest
 from local_compile_for_overleaf import install
+
+
+WINDOWS_ONLY = pytest.mark.skipif(
+    sys.platform != "win32", reason="requires the Windows registry"
+)
 
 
 def test_install_manifests_writes_chromium_and_firefox_manifests(
@@ -170,6 +178,20 @@ def test_browser_targets_windows_registry_locations(tmp_path: Path, monkeypatch)
     )
 
 
+def test_resolve_windows_launcher_finds_console_script_in_scripts_dir(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    scripts_dir = tmp_path / "Scripts"
+    scripts_dir.mkdir()
+    launcher = scripts_dir / f"{install.CLI_NAME}.exe"
+    launcher.write_text("", encoding="utf-8")
+    monkeypatch.setattr(install.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(install.sysconfig, "get_path", lambda _name: str(scripts_dir))
+
+    assert install.resolve_windows_launcher() == launcher.resolve()
+
+
 def test_write_firefox_manifest_registers_windows_manifest(
     tmp_path: Path,
     monkeypatch,
@@ -205,6 +227,61 @@ def test_write_firefox_manifest_registers_windows_manifest(
     manifest = json.loads(path.read_text(encoding="utf-8"))
     assert manifest["path"] == str(launcher)
     assert manifest["allowed_extensions"] == [install.FIREFOX_EXTENSION_ID]
+
+
+@WINDOWS_ONLY
+def test_install_manifests_writes_real_windows_registry_key(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import winreg
+
+    registry_parent = rf"Software\{install.PRODUCT_NAME} Tests\{uuid.uuid4().hex}"
+    registry_key = rf"{registry_parent}\{install.HOST_NAME}"
+    launcher = tmp_path / "local-compile-for-overleaf.exe"
+    launcher.write_text("", encoding="utf-8")
+    target = install.BrowserTarget(
+        key="chrome-test",
+        display_name="Chrome Test",
+        family="chromium",
+        profile_root=tmp_path / "profile",
+        manifest_dir=None,
+        windows_registry_key=registry_key,
+    )
+    monkeypatch.setattr(install.sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
+    monkeypatch.setattr(install, "browser_targets", lambda: [target])
+    monkeypatch.setattr(install, "ensure_launcher", lambda _host_path=None: launcher)
+    monkeypatch.setattr(install, "find_executable", lambda _name: None)
+
+    try:
+        report = install.install_manifests(
+            browsers=["chrome-test"],
+            extension_ids=["abcdefghijklmnopabcdefghijklmnop"],
+        )
+
+        assert len(report.installed) == 1
+        manifest_path = report.installed[0].path
+        assert manifest_path == (
+            tmp_path
+            / "LocalAppData"
+            / install.PRODUCT_NAME
+            / "NativeMessagingHosts"
+            / "chrome-test"
+            / f"{install.HOST_NAME}.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert manifest["path"] == str(launcher)
+        assert manifest["allowed_origins"] == [
+            "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
+        ]
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, registry_key) as key:
+            value, value_type = winreg.QueryValueEx(key, None)
+        assert value_type == winreg.REG_SZ
+        assert value == str(manifest_path)
+    finally:
+        delete_windows_registry_key(registry_key)
+        delete_windows_registry_key(registry_parent)
 
 
 def test_detect_extension_ids_reads_chromium_preferences(tmp_path: Path) -> None:
@@ -265,3 +342,14 @@ def test_format_report_mentions_retry(tmp_path: Path) -> None:
 
 def targets_by_key(targets: list[install.BrowserTarget]) -> dict[str, install.BrowserTarget]:
     return {target.key: target for target in targets}
+
+
+def delete_windows_registry_key(path: str) -> None:
+    if sys.platform != "win32":
+        return
+    import winreg
+
+    try:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, path)
+    except FileNotFoundError:
+        pass
