@@ -22,11 +22,25 @@ python3 -m pip install --user --upgrade ./native-host
 python3 -m local_compile_for_overleaf
 ```
 
+On Windows, use `py -3` instead of `python3`:
+
+```powershell
+py -3 -m pip install --user --upgrade ./native-host
+py -3 -m local_compile_for_overleaf
+```
+
 For the Chrome Web Store extension, the host installer already knows the published extension ID:
 
 ```sh
 python3 -m pip install --user --upgrade local-compile-for-overleaf
 python3 -m local_compile_for_overleaf
+```
+
+Windows:
+
+```powershell
+py -3 -m pip install --user --upgrade local-compile-for-overleaf
+py -3 -m local_compile_for_overleaf
 ```
 
 Published Chrome extension ID: `nmdbichdffibgheeggobljjipcangmdf`.
@@ -35,6 +49,12 @@ For an unpacked development Chrome install, pass the unpacked extension ID:
 
 ```sh
 python3 -m local_compile_for_overleaf install --browser chrome --extension-id <unpacked-extension-id>
+```
+
+Windows:
+
+```powershell
+py -3 -m local_compile_for_overleaf install --browser chrome --extension-id <unpacked-extension-id>
 ```
 
 ## Overleaf Community Edition

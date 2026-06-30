@@ -187,7 +187,32 @@ def test_resolve_windows_launcher_finds_console_script_in_scripts_dir(
     launcher = scripts_dir / f"{install.CLI_NAME}.exe"
     launcher.write_text("", encoding="utf-8")
     monkeypatch.setattr(install.shutil, "which", lambda _name: None)
-    monkeypatch.setattr(install.sysconfig, "get_path", lambda _name: str(scripts_dir))
+    monkeypatch.setattr(
+        install.sysconfig,
+        "get_path",
+        lambda _name, **_kwargs: str(scripts_dir),
+    )
+
+    assert install.resolve_windows_launcher() == launcher.resolve()
+
+
+def test_resolve_windows_launcher_finds_user_console_script(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    scripts_dir = tmp_path / "Python313" / "Scripts"
+    scripts_dir.mkdir(parents=True)
+    launcher = scripts_dir / f"{install.CLI_NAME}.exe"
+    launcher.write_text("", encoding="utf-8")
+
+    def get_path(_name: str, **kwargs: str) -> str:
+        if kwargs.get("scheme") == "nt_user":
+            return str(scripts_dir)
+        return str(tmp_path / "Python313" / "BaseScripts")
+
+    monkeypatch.setattr(install.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(install.sysconfig, "get_path", get_path)
+    monkeypatch.setattr(install.site, "getuserbase", lambda: str(tmp_path))
 
     assert install.resolve_windows_launcher() == launcher.resolve()
 

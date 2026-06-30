@@ -11,8 +11,8 @@ const extensionRuntime = getExtensionRuntime()
 const EXTENSION_RESPONSE = 'LCFO_EXTENSION_RESPONSE'
 const PAGE_REQUEST = 'LCFO_PAGE_REQUEST'
 const LOG_PREFIX = '[LCFO]'
-const INSTALL_COMMAND =
-  'python3 -m pip install --user --upgrade local-compile-for-overleaf && python3 -m local_compile_for_overleaf'
+const PACKAGE_NAME = 'local-compile-for-overleaf'
+const PYTHON_MODULE = 'local_compile_for_overleaf'
 
 const snapshotLoaders = new Map<string, ProjectSnapshotLoader>()
 let hostPanelOpen = false
@@ -250,7 +250,7 @@ function ensureHostInstallUi() {
   commandRow.className = 'lcfo-command-row'
 
   const command = document.createElement('code')
-  command.textContent = INSTALL_COMMAND
+  command.textContent = installCommand()
 
   const copy = document.createElement('button')
   copy.type = 'button'
@@ -383,7 +383,7 @@ function toggleOtherInstallOptions() {
 
 async function copyInstallCommand(button: HTMLButtonElement) {
   try {
-    await navigator.clipboard.writeText(INSTALL_COMMAND)
+    await navigator.clipboard.writeText(installCommand())
     setCopyButtonLabel(button, 'Copied')
     window.setTimeout(() => {
       setCopyButtonLabel(button, 'Copy')
@@ -607,10 +607,34 @@ function injectHostInstallStyles() {
 }
 
 function devInstallCommand(): string {
+  const python = pythonCommand()
   if (extensionOrigin().startsWith('moz-extension://')) {
-    return 'python3 -m local_compile_for_overleaf install --browser firefox'
+    return `${python} -m ${PYTHON_MODULE} install --browser firefox`
   }
-  return `python3 -m local_compile_for_overleaf install --browser chrome --extension-id ${extensionRuntime.id}`
+  return `${python} -m ${PYTHON_MODULE} install --browser chrome --extension-id ${extensionRuntime.id}`
+}
+
+function installCommand(): string {
+  const python = pythonCommand()
+  if (isWindowsPlatform()) {
+    return [
+      `${python} -m pip install --user --upgrade ${PACKAGE_NAME}`,
+      `${python} -m ${PYTHON_MODULE}`,
+    ].join('\n')
+  }
+  return `${python} -m pip install --user --upgrade ${PACKAGE_NAME} && ${python} -m ${PYTHON_MODULE}`
+}
+
+function pythonCommand(): string {
+  return isWindowsPlatform() ? 'py -3' : 'python3'
+}
+
+function isWindowsPlatform(): boolean {
+  const platform =
+    (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ??
+    navigator.platform ??
+    ''
+  return /^win/i.test(platform)
 }
 
 function getExtensionRuntime(): typeof chrome.runtime {

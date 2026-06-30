@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import shutil
+import site
 import sys
 import sysconfig
 from pathlib import Path
@@ -138,12 +139,52 @@ def resolve_windows_launcher(host_path: str | None = None) -> Path | None:
     executable = shutil.which(CLI_NAME)
     if executable:
         return Path(executable).resolve()
-    scripts_dir = Path(sysconfig.get_path("scripts"))
-    for name in [f"{CLI_NAME}.exe", f"{CLI_NAME}.cmd", CLI_NAME]:
-        candidate = scripts_dir / name
-        if candidate.exists():
-            return candidate.resolve()
+    for scripts_dir in windows_launcher_dirs():
+        for name in [f"{CLI_NAME}.exe", f"{CLI_NAME}.cmd", CLI_NAME]:
+            candidate = scripts_dir / name
+            if candidate.exists():
+                return candidate.resolve()
     return None
+
+
+def windows_launcher_dirs() -> list[Path]:
+    candidates: list[str | os.PathLike[str] | None] = [
+        sysconfig.get_path("scripts"),
+        windows_user_scripts_dir(),
+    ]
+    try:
+        user_base = site.getuserbase()
+    except AttributeError:
+        user_base = None
+    if user_base:
+        py_tag = f"Python{sys.version_info.major}{sys.version_info.minor}"
+        candidates.extend(
+            [
+                Path(user_base) / py_tag / "Scripts",
+                Path(user_base) / "Scripts",
+            ]
+        )
+
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate)
+        key = os.path.normcase(str(path))
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(path)
+    return paths
+
+
+def windows_user_scripts_dir() -> Path | None:
+    try:
+        path = sysconfig.get_path("scripts", scheme="nt_user")
+    except (KeyError, TypeError, ValueError):
+        return None
+    return Path(path) if path else None
 
 
 def write_posix_launcher(host_path: str | None = None) -> Path:

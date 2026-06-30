@@ -9,4 +9,11 @@ python3 -m pip install --user --upgrade local-compile-for-overleaf
 python3 -m local_compile_for_overleaf
 ```
 
+On Windows:
+
+```powershell
+py -3 -m pip install --user --upgrade local-compile-for-overleaf
+py -3 -m local_compile_for_overleaf
+```
+
 The project is unofficial and is not affiliated with Overleaf.
